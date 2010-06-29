@@ -1,0 +1,497 @@
+<?xml version="1.0" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Algorithm::KMeans - Clustering multi-dimensional data with a pure-Perl implementation</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<link rev="made" href="mailto:root@localhost" />
+</head>
+
+<body style="background-color: white">
+
+
+<!-- INDEX BEGIN -->
+<div name="index">
+<p><a name="__index__"></a></p>
+
+<ul>
+
+	<li><a href="#name">NAME</a></li>
+	<li><a href="#synopsis">SYNOPSIS</a></li>
+	<li><a href="#changes">CHANGES</a></li>
+	<li><a href="#description">DESCRIPTION</a></li>
+	<li><a href="#methods">METHODS</a></li>
+	<li><a href="#how_are_the_clusters_output">HOW ARE THE CLUSTERS OUTPUT?</a></li>
+	<li><a href="#required">REQUIRED</a></li>
+	<li><a href="#examples">EXAMPLES</a></li>
+	<li><a href="#export">EXPORT</a></li>
+	<li><a href="#caveats">CAVEATS</a></li>
+	<li><a href="#bugs">BUGS</a></li>
+	<li><a href="#installation">INSTALLATION</a></li>
+	<li><a href="#thanks">THANKS</a></li>
+	<li><a href="#author">AUTHOR</a></li>
+	<li><a href="#copyright">COPYRIGHT</a></li>
+</ul>
+
+<hr name="index" />
+</div>
+<!-- INDEX END -->
+
+<p>
+</p>
+<h1><a name="name">NAME</a></h1>
+<p>Algorithm::KMeans - Clustering multi-dimensional data with a pure-Perl implementation</p>
+<p>
+</p>
+<hr />
+<h1><a name="synopsis">SYNOPSIS</a></h1>
+<pre>
+  use Algorithm::KMeans;</pre>
+<pre>
+  #  Name the data file:</pre>
+<pre>
+  my $datafile = &quot;mydatafile.dat&quot;;</pre>
+<pre>
+  #  Set the mask to tell system which columns of the datafile to use for 
+  #  clustering and which column contains a symbolic ID for each data record.
+  #  For example, if the symbolic name is in the first column, if you want the
+  #  second column to be ignored, and you want the next three columns to be 
+  #  used for 3D clustering:</pre>
+<pre>
+  my $mask = &quot;N0111&quot;;</pre>
+<pre>
+  #  Now construct an instance of the clusterer.  The parameter K controls 
+  #  the number of clusters.  If you know how many clusters you want (in 
+  #  this case 3), call</pre>
+<pre>
+  my $clusterer = Algorithm::KMeans-&gt;new( datafile =&gt; $datafile,
+                                          mask     =&gt; $mask,
+                                          K        =&gt; 3,
+                                          terminal_output =&gt; 1,
+                                        );</pre>
+<pre>
+  #  Set K to 0 if you want the module to figure out the optimum number of 
+  #  clusters from the data (it is best to run this option with the 
+  #  terminal_output set to 1 so that you can see the different value of 
+  #  QoC for the different K):</pre>
+<pre>
+  my $clusterer = Algorithm::KMeans-&gt;new( datafile =&gt; $datafile,
+                                          mask     =&gt; $mask,
+                                          K        =&gt; 0,
+                                          terminal_output =&gt; 1,
+                                        );</pre>
+<pre>
+  #  Use the following call if you wish for the clusters to be written out 
+  #  to files. Each cluster will be deposited in a file named 'ClusterX.dat' 
+  #  with X starting from 0:</pre>
+<pre>
+  my $clusterer = Algorithm::KMeans-&gt;new( datafile =&gt; $datafile,
+                                          mask     =&gt; $mask,
+                                          K        =&gt; 3,
+                                          write_clusters_to_files =&gt; 1,
+                                        );</pre>
+<pre>
+  #  FOR ALL CASES ABOVE, YOU'D NEED TO MAKE THE FOLLOWING CALLS ON THE 
+  #  CLUSTERER INSTANCE TO ACTUALLY CLUSTER THE DATA:</pre>
+<pre>
+  $clusterer-&gt;read_data_from_file();
+  $clusterer-&gt;kmeans();</pre>
+<pre>
+  #  If you want to directly access the clusters and the cluster centers in 
+  #  your top-level script:</pre>
+<pre>
+  my ($clusters, $cluster_centers) = $clusterer-&gt;kmeans();</pre>
+<pre>
+  #  You can now access the symbolic data names in the clusters directly, 
+  #  as in:</pre>
+<pre>
+  foreach my $cluster (@$clusters) {
+      print &quot;Cluster:   @$cluster\n\n&quot;
+  }</pre>
+<pre>
+  # CLUSTER VISUALIZATION:</pre>
+<pre>
+  #  You must first set the mask for cluster visualization. This mask tells 
+  #  the module which 2D or 3D subspace of the original data space you wish 
+  #  to visualize the clusters in:</pre>
+<pre>
+  my $visualization_mask = &quot;111&quot;;
+  $clusterer-&gt;visualize($visualization_mask);</pre>
+<pre>
+  # SYNTHETIC DATA GENERATION:</pre>
+<pre>
+  #  The module has been provided with a class method for generating 
+  #  multivariate data for experimenting with clustering.  The data 
+  #  generation is controlled by the contents of the parameter file that 
+  #  is supplied as an argument to the data generator method.  The mean 
+  #  and covariance matrix entries in the parameter file must be according 
+  #  to the syntax shown in the param.txt file in the examples directory.  
+  #  It is best to edit this file as needed:</pre>
+<pre>
+  my $parameter_file = &quot;param.txt&quot;;
+  my $out_datafile = &quot;mydatafile.dat&quot;;
+  Algorithm::KMeans-&gt;cluster_data_generator(
+                          input_parameter_file =&gt; $parameter_file,
+                          output_datafile =&gt; $out_datafile,
+                          number_data_points_per_cluster =&gt; 20 );</pre>
+<p>
+</p>
+<hr />
+<h1><a name="changes">CHANGES</a></h1>
+<p>Version 1.1 is a an object-oriented version of the
+implementation presented in version 1.0.  The current
+version should lend itself more easily to code extension.
+You could, for example, create your own class by subclassing
+from the class presented here and, in your subclass, use your
+own criteria for the similarity distance between the data
+points and for the QoC (Quality of Clustering) metric, and,
+possibly a different rule to stop the iterations.</p>
+<p>Version 1.1 also allows you to directly access the clusters
+formed and the cluster centers in your calling script.</p>
+<p>
+</p>
+<hr />
+<h1><a name="description">DESCRIPTION</a></h1>
+<p><strong>Algorithm::KMeans</strong> is a <em>perl5</em> module for the clustering
+of numerical data in multidimensional spaces.  Since the
+module is entirely in Perl (in the sense that it is not a
+Perl wrapper around a C library that actually does the
+clustering), the code in the module can easily be modified
+to experiment with several aspects of automatic clustering.
+For example, one can change the criterion used to measure
+the &quot;distance&quot; between two data points, the stopping
+condition for accepting final clusters, the criterion used
+for measuring the quality of the clustering achieved, etc.</p>
+<p>A K-Means clusterer is a poor man's implementation of the EM
+algorithm.  EM stands for Expectation Maximization. For the
+case of Gaussian data, the results obtained with a good
+K-Means implementation should match those obtained with the
+EM algorithm. Clustering with K-Means takes place
+iteratively and involves two steps: 1) assignment of data
+samples to clusters; and 2) Recalculation of the cluster
+centers.  The assignment step can be shown to be akin to the
+Expectation step of the EM algorithm, and the calculation of
+the cluster centers akin to the Maximization step of the EM
+algorithm.</p>
+<p>Of the two key steps of the K-Means algorithm, the
+assignment step consists of assigning each data point to
+that cluster from whose center the data point is the
+closest.  That is, during assignment, you compute the
+distance between the data point and each of the current
+cluster centers.  You assign the data sample on the basis of
+the minimum value of the computed distance.  The second step
+consists of re-computing the cluster centers for the newly
+modified clusters.</p>
+<p>Obviously, before the two-step approach can proceed, we need
+to initialize the both the cluster center values and the
+clusters that can then be iteratively modified by the
+two-step algorithm.  How this initialization is carried out
+is very important.  The implementation here uses a random
+number generator to find K random integers between 0 and N
+where N is the total number of data samples that need to be
+clustered and K the number of clusters you wish to form.
+The K random integers are used as indices for the data
+samples in the overall data array --- the data samples thus
+selected are treated as seed cluster centers.  This
+obviously requires a prior knowledge of K.</p>
+<p>How to specify K is one of the most vexing issues in any
+approach to clustering.  In some case, we can set K on the
+basis of prior knowledge.  But, more often than not, no such
+prior knowledge is available.  When the programmer does not
+explicitly specify a value for K, the approach taken in the
+current implementation is to try all possible values between
+2 and some largest possible value that makes statistical
+sense.  We then choose that value for K which yields the
+best value for the QoC (Quality of Clustering) metric.  It
+is generally believed that the largest value for K should
+not exceed sqrt(N/2) where N is the number of data point to
+be clustered.</p>
+<p>How to set the QoC metric is obviously a critical issue unto
+itself.  In the current implementation, the value of QoC is
+a ratio of the average radius of the clusters and the
+average distance between the cluster centers.  But note that
+this is a good criterion only when the data exhibits the
+same variance in all directions.  When the data variance is
+different directions, but still remains the same for all
+clusters, a more appropriate QoC can be formulated using
+other distance metrics such as the Mahalanobis distance.</p>
+<p>Every iterative algorithm requires a stopping criterion.
+The criterion implemented here is that we stop iterations
+when there is no re-assignment of the data points during the
+assignment step.</p>
+<p>Ordinarily, the output produced by a K-Means clusterer will
+correspond to a local minimum for the QoC values, as opposed
+to a global minimum.  The current implementation protects
+against that, but only in a very small way, by trying
+different randomly selected initial cluster centers and then
+selecting the one that gives the best overall QoC value.</p>
+<p>
+</p>
+<hr />
+<h1><a name="methods">METHODS</a></h1>
+<p>The module provides the following methods for clustering,
+for cluster visualization, and for the generation of data
+for testing a clustering algorithm:</p>
+<dl>
+<dt><strong><a name="new" class="item"><code>new()</code></a></strong></dt>
+
+<dd>
+<pre>
+    my $clusterer = Algorithm::KMeans-&gt;new(datafile =&gt; $datafile,
+                                           mask     =&gt; $mask,
+                                           K        =&gt; $K,
+                                           terminal_output =&gt; 1,     
+                                           write_clusters_to_files =&gt; 1,
+                                          );</pre>
+<p>A call to <a href="#new"><code>new()</code></a> constructs a new instance of the
+Algorithm::KMeans class.  When $K is a non-zero positive
+integer, the module will construct exactly that many
+clusters.  However, when $K is 0, the module will find the
+best number of clusters to partition the data into.</p>
+<p>The data file is expected to contain entries in the
+following format</p>
+<pre>
+   c20  0  10.7087017086940  9.63528386251712  10.9512155258108
+   c7   0  12.8025925026787  10.6126270065785  10.5228482095349
+   b9   0  7.60118206283120  5.05889245193079  5.82841781759102
+   ....
+   ....</pre>
+<p>where the first column contains the symbolic ID tag for each
+data record and the rest of the columns the numerical
+information.  As to which columns are actually used for
+clustering is decided by the string value of the mask.  For
+example, if we wanted to cluster on the basis of the entries
+in just the last three columns, the mask value would be
+`N0111' where the character `N' indicates that the ID tag is
+in the first column, the character '0' that the second
+column is to be ignored, and '1's that the last three
+columns are to be used for clustering.</p>
+<p>The parameter `terminal_output' is boolean; when not
+supplied in the call to <a href="#new"><code>new()</code></a> it defaults to 0.  When set,
+this parameter determines what you will see on the terminal
+screen of the window in which you make these method calls.
+When set to 1, you will see on the terminal screen the
+different clusters as lists of the symbolic IDs and their
+cluster centers. You will also see the QoC (Quality of
+Clustering) value for the clusters displayed.  If this
+parameter is set to 0, you will see only minimal
+information.</p>
+<p>The parameter `write_clusters_to_files' is boolean; when not
+supplied in the call to <a href="#new"><code>new()</code></a>, it defaults to 0.  When set
+to 1, the clusters are written out to files named</p>
+<pre>
+
+     Cluster0.dat 
+     Cluster1.dat 
+     Cluster2.dat
+     ...
+     ...</pre>
+<p>Before the clusters are written to these files, the module
+destroys all files with such names in the directory in which
+you call the module.</p>
+</dd>
+<dt><strong><a name="read_data_from_file" class="item"><code>read_data_from_file()</code></a></strong></dt>
+
+<dd>
+<pre>
+    $clusterer-&gt;read_data_from_file()</pre>
+</dd>
+<dt><strong><a name="kmeans" class="item"><code>kmeans()</code></a></strong></dt>
+
+<dd>
+<pre>
+    $clusterer-&gt;kmeans();</pre>
+<pre>
+    or</pre>
+<pre>
+    my ($clusters, $cluster_centers) = $clusterer-&gt;kmeans();</pre>
+<p>The first call above works solely by side-effect.  The
+second call also returns the clusters and the cluster
+centers.</p>
+</dd>
+<dt><strong><a name="get_k_best" class="item"><code>get_K_best()</code></a></strong></dt>
+
+<dd>
+<pre>
+    $clusterer-&gt;get_K_best();</pre>
+<p>This call makes sense only if you supply the K=0 option to
+the constructor, which would cause the KMeans algorithm to
+figure out on its own the best value for K.  Remember, K is
+the number of clusters the data is partitioned into.</p>
+</dd>
+<dt><strong><a name="show_qoc_values" class="item"><code>show_QoC_values()</code></a></strong></dt>
+
+<dd>
+<pre>
+    $clusterer-&gt;show_QoC_values();</pre>
+<p>presents a table with K values in the left column and the
+corresponding QoC (Quality-of-Clustering) values in the
+right column.  Note that this call makes sense only if
+supply the K=0 option to the constructor.</p>
+</dd>
+<dt><strong><a name="visualize" class="item"><code>visualize()</code></a></strong></dt>
+
+<dd>
+<pre>
+    $clusterer-&gt;visualize( $visualization_mask )</pre>
+<p>The visualization mask here does not have to be identical to
+the one used for clustering, but must be a subset of that
+mask.  This is convenient for visualizing the clusters in
+two- or three-dimensional subspaces of the original space.</p>
+</dd>
+<dt><strong><a name="cluster_data_generator" class="item"><code>cluster_data_generator()</code></a></strong></dt>
+
+<dd>
+<pre>
+    Algorithm::KMeans-&gt;cluster_data_generator(
+                            input_parameter_file =&gt; $parameter_file,
+                            output_datafile =&gt; $out_datafile,
+                            number_data_points_per_cluster =&gt; 20 );</pre>
+<p>for generating multivariate data for clustering if you wish
+to play with synthetic data for clustering.  The input
+parameter file contains the means and the variances for the
+different Gaussians you wish to use for the synthetic data.
+See the file param.txt provided in the examples directory.
+It will be easiest for you to just edit this file for your
+data generation needs.  In addition to the format of the
+parameter file, the main constraint you need to observe in
+specifying the parameters is that the dimensionality of the
+covariance matrix must correspond to the dimensionality of
+the mean vectors.  The multivariate random numbers are
+generated by calling the Math::Random module.  As you would
+expect, this module requires that the covariance matrices
+you specify in your parameter file be symmetric and positive
+definite.  Should the covariances in your parameter file not
+obey this condition, the Math::Random module will let you
+know.</p>
+</dd>
+</dl>
+<p>
+</p>
+<hr />
+<h1><a name="how_are_the_clusters_output">HOW ARE THE CLUSTERS OUTPUT?</a></h1>
+<p>When the option terminal_output is set in the call to the
+constructor, the clusters are displayed on the terminal
+screen.</p>
+<p>When the option write_clusters_to_files is set in the call
+to the constructor, the module dumps the clusters in files
+named</p>
+<pre>
+    Cluster0.dat
+    Cluster1.dat
+    Cluster2.dat
+    ...
+    ...</pre>
+<p>in the directory in which you execute the module.  The
+number of such files will equal the number of clusters
+formed.  All such existing files in the directory are
+destroyed before fresh ones created.  Each cluster file
+contains the symbolic ID tags of the data points in that
+cluster.</p>
+<p>
+</p>
+<hr />
+<h1><a name="required">REQUIRED</a></h1>
+<p>This module requires the following two modules:</p>
+<pre>
+   Math::Random
+   Graphics::GnuplotIF</pre>
+<p>the former for generating the multivariate random numbers
+and the latter for the visualization of the clusters.</p>
+<p>
+</p>
+<hr />
+<h1><a name="examples">EXAMPLES</a></h1>
+<p>See the examples directory in the distribution for how to
+make calls to the clustering and the visualization methods.
+The examples directory also includes a parameter file,
+param.txt, for generating synthetic data for clustering.
+Just edit this file if you would like to generate your own
+multivariate data for clustering.</p>
+<p>
+</p>
+<hr />
+<h1><a name="export">EXPORT</a></h1>
+<p>None by design.</p>
+<p>
+</p>
+<hr />
+<h1><a name="caveats">CAVEATS</a></h1>
+<p>Please note that this clustering module is not meant for
+very large datafiles.  Being an all-Perl implementation, the
+goal here is not the speed of execution.  On the contrary,
+the goal is to make it easy to experiment with the different
+facets of K-Means clustering.  If you need to process a
+large data file, you'd be better off with a module like
+Algorithm::Cluster.  However note that when you use a
+wrapper module in which it is a C library that is actually
+doing the job of clustering for you, it is more difficult to
+experiment with the various aspects of clustering.  At the
+least, you have to recompile the code for every change you
+make to the source code of a low-level library.  You are
+spared that frustration with an all-Perl implementation.</p>
+<p>Clustering usually does not work well when the data is
+highly anisotropic, that is, when the data has very
+different variances along its different dimensions.  This
+problem becomes particularly severe when the different
+clusters you expect to see in the data have non-uniform
+anisotropies.  When the anisotropies are uniform, one could
+improve on the implementation shown in the current module by
+first normalizing the data with respect to the different
+variances along the different dimensions.  One could also
+try to cluster the data in a low-dimensional space formed by
+a principal components analysis of the data, especially
+after the variances are normalized out.  Depending on how
+the current module is received, its future versions may
+include those enhancements.</p>
+<p>
+</p>
+<hr />
+<h1><a name="bugs">BUGS</a></h1>
+<p>Please send me email to the author if you find any bugs.
+They will be dealt with promptly. When sending email, please
+place the string 'KMeans' in the subject line.</p>
+<p>
+</p>
+<hr />
+<h1><a name="installation">INSTALLATION</a></h1>
+<p>The usual</p>
+<pre>
+    perl Makefile.PL
+    make
+    make test
+    make install</pre>
+<p>if you have root access.  If not,</p>
+<pre>
+    perl Makefile.PL prefix=/some/other/directory/
+    make
+    make test
+    make install</pre>
+<p>
+</p>
+<hr />
+<h1><a name="thanks">THANKS</a></h1>
+<p>Chad Aeschliman was kind enough to test out the interface of
+this module and to give suggestions for its improvement.  His
+key slogan: &quot;If you cannot figure out how to use a module in
+under 10 minutes, it's not going to be used.&quot;  That should
+explain the longish Synopsis included here.</p>
+<p>
+</p>
+<hr />
+<h1><a name="author">AUTHOR</a></h1>
+<p>Avinash Kak, <a href="mailto:kak@purdue.edu">kak@purdue.edu</a></p>
+<p>If you send email, please place the string &quot;KMeans&quot; in your
+subject line to get past my spam filter.</p>
+<p>
+</p>
+<hr />
+<h1><a name="copyright">COPYRIGHT</a></h1>
+<p>This library is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.</p>
+<pre>
+ Copyright 2010 Avinash Kak</pre>
+
+</body>
+
+</html>

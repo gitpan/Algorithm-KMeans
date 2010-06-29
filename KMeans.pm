@@ -13,45 +13,47 @@ package Algorithm::KMeans;
 use 5.10.0;
 use strict;
 use warnings;
+use Carp;
+use File::Basename;
+use Math::Random;
+use Graphics::GnuplotIF;
 
-use Exporter;
-our @ISA = qw(Exporter);
-
-our @EXPORT_OK = qw(kmeans visualize cluster_data_generator);
-
-our $VERSION = '1.0';
-
-my ($terminal_output, %all_data);
+our $VERSION = '1.1';
 
 # from perl docs:
-my $num_regex =  '^[+-]?\ *(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$'; 
+my $_num_regex =  '^[+-]?\ *(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$'; 
 
-sub kmeans {
-    my %args = @_;
-    die "\n\n$0 requires exactly four command line arguments. " .
-               "\n\nExample:\n\n " .
-               "      kmeans.pl filename.dat -I0111  1  K=3 " .
-               "\n\nARG 1: the name of the data file; " .
-               "\n\nARG 2: a mask array expressed as a single string that " .
-               "starts with the character `-' and the rest of which " .
-               "consists of a single letter I, for the data record " .
-               "identifier field and 0s and 1s to indicate which " .
-               "fields in the data file records to ignore and which " .
-               "fields to treat as numerical data for clustering; " .
-               "\n\nARG 3: either 0 or 1, with 1 indicating you wish " .
-               "to see the results on the terminal screen and 0 otherwise;" .
-               "\n\nARG 4: a string like K=N where N is zero if want the " .
-               "program to figure out the best K (the number of clusters), " .
-               "or a specific integer for some fixed value for K" 
-                                          unless keys %args == 4; 
-    my $datafile = $args{datafile};
-    my $mask     = $args{mask};
-    my $K = $args{K};
-    $terminal_output = $args{terminal_output};
+# Constructor:
+sub new { 
+    my ($class, %args) = @_;
+    bless {
+        _datafile         =>   $args{datafile} || croak("datafile required"),
+        _mask             =>   $args{mask}     || croak("mask required"),
+        _K                =>   $args{K}        || 0,
+        _terminal_output  =>   $args{terminal_output} || 0,
+        _data             =>   {},
+        _data_id_tags     =>   [],
+        _N                =>   0,
+        _K_best           =>   'unknown',
+        _QoC_values       =>   {},
+        _clusters         =>   [],
+        _cluster_centers  =>   [],
+        _data_dimensions  =>   0,
+        _clusters_2_files =>  $args{write_clusters_to_files} || 0,
+    }, $class;
+}
 
+sub read_data_from_file {
+    my $self = shift;
+    my $datafile = $self->{_datafile};
+    my $mask = $self->{_mask};
     my @mask = split //, $mask;
 
-    open INPUT, $datafile 
+    $self->{_data_dimensions} = scalar grep {$_ eq '1'} @mask;
+    print "data dimensionality:  $self->{_data_dimensions} \n"
+	if $self->{_terminal_output};
+
+    open INPUT, $datafile
         or die "unable to open file $datafile: $!\n";
     chomp( my @raw_data = <INPUT> );
     close INPUT;
@@ -67,7 +69,7 @@ sub kmeans {
         foreach my $i (0..@fields-1) {
             if ($mask[$i] eq '0') {
                 next;
-            } elsif ($mask[$i] eq 'I') {
+            } elsif ($mask[$i] eq 'N') {
                 $record_id = $fields[$i];
             } elsif ($mask[$i] eq '1') {
                 push @data_fields, $fields[$i];
@@ -75,31 +77,41 @@ sub kmeans {
                 die "misformed mask for reading the data file\n";
             }
         }
-        my @nums = map {/$num_regex/;$_} @data_fields;
-        $all_data{ $record_id } = \@nums;
+        my @nums = map {/$_num_regex/;$_} @data_fields;
+        $self->{_data}->{ $record_id } = \@nums;
     }
-
-    my @all_data_ids = keys %all_data;
-
-    if ($K == 0) {
-        iterate_through_K( \@all_data_ids );
-    } elsif ( $K =~ /\d+/) {
-        cluster_for_fixed_K( \@all_data_ids, $K );
-    } else {
-        die "Incorrect call syntax used.  See documentation.\n";
-    }
-}
-
-sub cluster_for_fixed_K {
-    my @all_data_ids = @{shift @_};
-    my $K = shift;
-    my $N = @all_data_ids;
+    my @all_data_ids = keys %{$self->{_data}};
+    $self->{_data_id_tags} = \@all_data_ids;
+    $self->{_N} = scalar @all_data_ids;
     die "You need at least 8 data samples. The number of data points " .
         "must satisfy the relation N = 2xK**2 where K is the " .
         "number of clusters.  The smallest value for K is 2.\n"
-        if $N <= 8;
-    my $Kmax = int( sqrt( $N / 2.0 ) );
-    print "Value of Kmax is: $Kmax\n";
+        if $self->{_N} <= 8;
+}
+
+sub kmeans {
+    my $self = shift;
+    my $K = $self->{_K};
+    if ($K == 0) {
+        $self->iterate_through_K();
+    } elsif ( $K =~ /\d+/) {
+        $self->cluster_for_fixed_K_multiple_tries($K);
+    } else {
+        die "Incorrect call syntax used.  See documentation.\n";
+    }
+    if ((defined $self->{_clusters}) && (defined $self->{_cluster_centers})){
+        $self->write_clusters_to_files( $self->{_clusters} )
+            if $self->{_clusters_2_files};
+        return ($self->{_clusters}, $self->{_cluster_centers});
+    } else {
+        die "Clustering failed.  Try again.";
+    }
+}
+
+sub cluster_for_fixed_K_multiple_tries {
+    my $self = shift;
+    my $K = shift;
+    my @all_data_ids = @{$self->{_data_id_tags}};
     my $QoC;
     my @QoC_values;
     my @array_of_clusters;
@@ -108,19 +120,23 @@ sub cluster_for_fixed_K {
     my $new_clusters;
     my $cluster_centers;
     my $new_cluster_centers;
-    print "Clustering for K = $K\n";
+    print "Clustering for K = $K\n" if $self->{_terminal_output};
     foreach my $trial (1..20) {
-        my ($new_clusters, $new_cluster_centers) = 
-                              cluster_for_given_K( $K, \@all_data_ids);
-        my $newQoC = cluster_quality( $new_clusters, 
-                                          $new_cluster_centers );
+        my ($new_clusters, $new_cluster_centers) =
+                              $self->cluster_for_given_K($K);
+
+        my $newQoC = $self->cluster_quality( $new_clusters, 
+                                             $new_cluster_centers );
         if ( (!defined $QoC) || ($newQoC < $QoC) ) {
             $QoC = $newQoC;
             $clusters = deep_copy( $new_clusters );
             $cluster_centers = deep_copy( $new_cluster_centers );
         } 
     }
-    if ($terminal_output) {
+    $self->{_clusters} = $clusters;
+    $self->{_cluster_centers} = $cluster_centers;  
+    $self->{_QoC_values}->{"$K"} = $QoC; 
+    if ($self->{_terminal_output}) {
         print "\nDisplaying final clusters for best K (= $K) :\n";
         display_clusters( $clusters );
         display_cluster_centers( $cluster_centers );
@@ -128,7 +144,6 @@ sub cluster_for_fixed_K {
 #       print "QoC values array for different K: " . 
 #               "@{[ map {my $x = sprintf('%.4f', $_); $x} @QoC_values ]}\n";
     }
-    write_clusters_out_to_files( $clusters );
 }
 
 # The following subroutine is the top-level routine to call
@@ -151,14 +166,15 @@ sub cluster_for_fixed_K {
 # be the best value for K.  Finally, the output clusters are
 # written out to separate files.
 sub iterate_through_K {
-    my @all_data_ids = @{shift @_};
-    my $N = @all_data_ids;
+    my $self = shift;
+    my @all_data_ids = @{$self->{_data_id_tags}};
+    my $N = $self->{_N};
     die "You need at least 8 data samples. The number of data points " .
         "must satisfy the relation N = 2xK**2 where K is the " .
         "number of clusters.  The smallest value for K is 2.\n"
         if $N <= 8;
     my $Kmax = int( sqrt( $N / 2.0 ) );
-    print "Value of Kmax is: $Kmax\n";
+    print "Value of Kmax is: $Kmax\n" if $self->{_terminal_output};
     my @QoC_values;
     my @array_of_clusters;
     my @array_of_cluster_centers;
@@ -166,12 +182,12 @@ sub iterate_through_K {
         my $QoC;
         my $clusters;
         my $cluster_centers;
-        print "Clustering for K = $K\n";
+        print "Clustering for K = $K\n" if $self->{_terminal_output};
         foreach my $trial (1..20) {
             my ($new_clusters, $new_cluster_centers) = 
-                              cluster_for_given_K( $K, \@all_data_ids);
-            my $newQoC = cluster_quality( $new_clusters, 
-                                          $new_cluster_centers );
+                           $self->cluster_for_given_K($K);
+            my $newQoC = $self->cluster_quality( $new_clusters, 
+                                                 $new_cluster_centers );
             if ( (!defined $QoC) || ($newQoC < $QoC) ) {
                 $QoC = $newQoC;
                 $clusters = deep_copy( $new_clusters );
@@ -186,7 +202,8 @@ sub iterate_through_K {
     die "Unsuccessful. Try again.\n" if ($max - $min ) < 0.00001;
     my $K_minus_2_best = get_index_at_value($min, \@QoC_values );
     my $K_best = $K_minus_2_best + 2;
-    if ($terminal_output) {
+
+    if ($self->{_terminal_output}) {
         print "\nDisplaying final clusters for best K (= $K_best) :\n";
         display_clusters( $array_of_clusters[$K_minus_2_best] );
         display_cluster_centers( $array_of_cluster_centers[$K_minus_2_best] );
@@ -195,48 +212,14 @@ sub iterate_through_K {
 #       print "QoC values array for different K: " . 
 #               "@{[ map {my $x = sprintf('%.4f', $_); $x} @QoC_values ]}\n";
     }
-    write_clusters_out_to_files( $array_of_clusters[$K_minus_2_best] );
-}
-
-# The following function returns the value of QoC for a
-# given partitioning of the data into K clusters.  It
-# calculates two things: the average value for the distance
-# between a data point and the center of the cluster in
-# which the data point resides, and the average value for
-# the distances between the cluster centers.  We obviously
-# want to minimize the former and maximize the latter.  All
-# of the "from center" distances within each cluster are
-# stored in the variable $sum_of_distances_for_one_cluster.
-# When this variable, after it is divided by the number of
-# data elements in the cluster, is summed over all the
-# clusters, we get a value that is stored in
-# $avg_dist_for_cluster.  The inter-cluster-center distances
-# are stored in the variable $inter_cluster_center_dist.
-sub cluster_quality {
-    my $clusters = shift;
-    my $cluster_centers = shift;
-    my $K = @$cluster_centers;          # Number of clusters
-    my $cluster_radius = 0;
-    foreach my $i (0..@$clusters-1) {
-        my $sum_of_distances_for_one_cluster = 0;
-        foreach my $ele (@{$clusters->[$i]}) {
-            $sum_of_distances_for_one_cluster += 
-                distance( $ele, $cluster_centers->[$i] );
-        }
-       $cluster_radius += 
-           $sum_of_distances_for_one_cluster / @{$clusters->[$i]};
+    $self->{_K_best} = $K_best;
+#    $self->{_QoC_values} = \@QoC_values;
+    foreach my $i (0..@QoC_values-1) {
+        my $k = $i + 2;
+        $self->{_QoC_values}->{"$k"} = $QoC_values[$i]; 
     }
-    my $inter_cluster_center_dist = 0;
-    foreach my $i (0..@$cluster_centers-1) {
-        foreach my $j (0..@$cluster_centers-1) {
-            $inter_cluster_center_dist += 
-              distance2( $cluster_centers->[$i], 
-                         $cluster_centers->[$j] );
-        }
-    }
-    my $avg_inter_cluster_center_dist = $inter_cluster_center_dist /
-                    ( $K * ($K-1) / 2.0 );
-    return $cluster_radius / $avg_inter_cluster_center_dist;
+    $self->{_clusters} = $array_of_clusters[$K_minus_2_best];
+    $self->{_cluster_centers} =  $array_of_cluster_centers[$K_minus_2_best];
 }
 
 # This is the function to call if you already know what
@@ -254,20 +237,19 @@ sub cluster_quality {
 # assign the rest of the data to each of the K clusters on
 # the basis of the proximity to the cluster centers.
 sub cluster_for_given_K {
+    my $self = shift;
     my $K = shift;
-    my @all_data_ids = @{shift @_};
-    my @cluster_center_indices = 
-                initialize_cluster_centers( $K, scalar(@all_data_ids) );
-    my $cluster_centers = get_initial_cluster_centers( 
-                                              \@cluster_center_indices, 
-                                              \@all_data_ids );
+    my @all_data_ids = @{$self->{_data_id_tags}};
+    my @cluster_center_indices =  $self->initialize_cluster_centers($K);
+    my $cluster_centers = $self->get_initial_cluster_centers( 
+                                         \@cluster_center_indices );
 
-    my $clusters = assign_data_to_clusters_initial( $cluster_centers, 
-                                              \@all_data_ids );
+    my $clusters = $self->assign_data_to_clusters_initial($cluster_centers);  
+
     my $cluster_nonexistant_flag = 0;
     foreach my $trial (0..2) {
-        ($clusters, $cluster_centers) = 
-                              assign_data_to_clusters( $clusters, $K );
+        ($clusters, $cluster_centers) =
+                         $self->assign_data_to_clusters( $clusters, $K );
         my $num_of_clusters_returned = @$clusters;
         foreach my $cluster (@$clusters) {
             $cluster_nonexistant_flag = 1 if ((!defined $cluster) 
@@ -292,8 +274,9 @@ sub cluster_for_given_K {
 # if this ratio is less than 0.3, we discard the K integers
 # and try again.
 sub initialize_cluster_centers {
+    my $self = shift;
     my $K = shift;
-    my $data_store_size = shift;
+    my $data_store_size = $self->{_N};
     my @cluster_center_indices;
     while (1) {
         foreach my $i (0..$K-1) {
@@ -320,11 +303,12 @@ sub initialize_cluster_centers {
 # those indices.  The fetched data samples serve as the
 # initial cluster centers.
 sub get_initial_cluster_centers {
+    my $self = shift;
     my @cluster_center_indices = @{shift @_};
-    my @all_data_ids = @{shift @_};
     my @result;
     foreach my $i (@cluster_center_indices) {    
-        push @result, $all_data{$all_data_ids[$i]};        
+        my $tag = $self->{_data_id_tags}[$i];     
+        push @result, $self->{_data}->{$tag};
     }
     return \@result;
 }
@@ -334,14 +318,14 @@ sub get_initial_cluster_centers {
 # by the previous routine on the basis of the best proximity
 # of the data samples to the different cluster centers.
 sub assign_data_to_clusters_initial {
+    my $self = shift;
     my @cluster_centers = @{ shift @_ };
-    my @all_data_ids =  @{ shift @_ };
     my @clusters;
-    foreach my $ele (@all_data_ids) {
+    foreach my $ele (@{$self->{_data_id_tags}}) {
         my $best_cluster;
         my @dist_from_clust_centers;
         foreach my $center (@cluster_centers) {
-            push @dist_from_clust_centers, distance($ele, $center);
+            push @dist_from_clust_centers, $self->distance($ele, $center);
         }
         my ($min, $best_center_index) = minimum( \@dist_from_clust_centers );
         push @{$clusters[$best_center_index]}, $ele;
@@ -359,6 +343,7 @@ sub assign_data_to_clusters_initial {
 # the while() loop anyway.  In most cases, this limit will
 # not be reached.
 sub assign_data_to_clusters {
+    my $self = shift;
     my $clusters = shift;
     my $K = shift;
     my $final_cluster_centers;
@@ -369,7 +354,7 @@ sub assign_data_to_clusters {
         my $current_cluster_center_index = 0;
         my $cluster_size_zero_condition = 0;
         my $how_many = @$clusters;
-        my $cluster_centers = update_cluster_centers( $clusters );
+        my $cluster_centers = $self->update_cluster_centers( $clusters );
         $iteration_index++;
         foreach my $cluster (@$clusters) {
             my $current_cluster_center = 
@@ -377,7 +362,8 @@ sub assign_data_to_clusters {
             foreach my $ele (@$cluster) {
                 my @dist_from_clust_centers;
                 foreach my $center (@$cluster_centers) {
-                    push @dist_from_clust_centers, distance($ele, $center);
+                    push @dist_from_clust_centers, 
+                               $self->distance($ele, $center);
                 }
                 my ($min, $best_center_index) = 
                               minimum( \@dist_from_clust_centers );
@@ -407,7 +393,7 @@ sub assign_data_to_clusters {
 	$clusters = deep_copy( $new_clusters );
         last if $assignment_changed_flag == 0;
     }
-    $final_cluster_centers = update_cluster_centers( $clusters );
+    $final_cluster_centers = $self->update_cluster_centers( $clusters );
     return ($clusters, $final_cluster_centers);
 }
 
@@ -416,6 +402,7 @@ sub assign_data_to_clusters {
 # cluster centers, we call the routine shown here for
 # updating the values of the cluster centers.
 sub update_cluster_centers {
+    my $self = shift;
     my @clusters = @{ shift @_ };
     my @new_cluster_centers;
     foreach my $cluster (@clusters) {
@@ -423,12 +410,131 @@ sub update_cluster_centers {
             "for a given K.  Try again. \n" if !defined $cluster;
         my $cluster_size = @$cluster;
         die "Cluster size is zero --- untenable.\n" if $cluster_size == 0;
-        my @new_cluster_center = @{add_vectors( $cluster )};
+        my @new_cluster_center = @{$self->add_point_coords( $cluster )};
         @new_cluster_center = map {my $x = $_/$cluster_size; $x} 
                                   @new_cluster_center;
         push @new_cluster_centers, \@new_cluster_center;
     }        
     return \@new_cluster_centers;
+}
+
+# The following function returns the value of QoC for a
+# given partitioning of the data into K clusters.  It
+# calculates two things: the average value for the distance
+# between a data point and the center of the cluster in
+# which the data point resides, and the average value for
+# the distances between the cluster centers.  We obviously
+# want to minimize the former and maximize the latter.  All
+# of the "from center" distances within each cluster are
+# stored in the variable $sum_of_distances_for_one_cluster.
+# When this variable, after it is divided by the number of
+# data elements in the cluster, is summed over all the
+# clusters, we get a value that is stored in
+# $avg_dist_for_cluster.  The inter-cluster-center distances
+# are stored in the variable $inter_cluster_center_dist.
+sub cluster_quality {
+    my $self = shift;
+    my $clusters = shift;
+    my $cluster_centers = shift;
+    my $K = @$cluster_centers;          # Number of clusters
+    my $cluster_radius = 0;
+    foreach my $i (0..@$clusters-1) {
+        my $sum_of_distances_for_one_cluster = 0;
+        foreach my $ele (@{$clusters->[$i]}) {
+            $sum_of_distances_for_one_cluster += 
+                $self->distance( $ele, $cluster_centers->[$i] );
+        }
+       $cluster_radius += 
+           $sum_of_distances_for_one_cluster / @{$clusters->[$i]};
+    }
+    my $inter_cluster_center_dist = 0;
+    foreach my $i (0..@$cluster_centers-1) {
+        foreach my $j (0..@$cluster_centers-1) {
+            $inter_cluster_center_dist += 
+              $self->distance2( $cluster_centers->[$i], 
+                                $cluster_centers->[$j] );
+        }
+    }
+    my $avg_inter_cluster_center_dist = $inter_cluster_center_dist /
+                    ( $K * ($K-1) / 2.0 );
+    return $cluster_radius / $avg_inter_cluster_center_dist;
+}
+
+# The following routine is for computing the distance
+# between a data point specified by its symbolic name in the
+# master datafile and a point (such as the center of a
+# cluster) expressed as a vector of coordinates:
+sub distance {
+    my $self = shift;
+    my $ele1_id = shift @_;            # symbolic name of data sample
+    my @ele1 = @{$self->{_data}->{$ele1_id}};
+    my @ele2 = @{shift @_};
+    die "wrong data types for distance calculation\n" if @ele1 != @ele2;
+    my $how_many = @ele1;
+    my $squared_sum = 0;
+    foreach my $i (0..$how_many-1) {
+        $squared_sum += ($ele1[$i] - $ele2[$i])**2;
+    }    
+    my $dist = sqrt $squared_sum;
+    return $dist;
+}
+
+# The following routine does the same as above but now both
+# arguments are expected to be arrays of numbers:
+sub distance2 {
+    my $self = shift;
+    my @ele1 = @{shift @_};
+    my @ele2 = @{shift @_};
+    die "wrong data types for distance calculation\n" if @ele1 != @ele2;
+    my $how_many = @ele1;
+    my $squared_sum = 0;
+    foreach my $i (0..$how_many-1) {
+        $squared_sum += ($ele1[$i] - $ele2[$i])**2;
+    }    
+    return sqrt $squared_sum;
+}
+
+sub write_clusters_to_files {
+    my $self = shift;
+#    my @clusters = @{shift @_};        
+    my @clusters = @{$self->{_clusters}};
+    unlink glob "Cluster*.dat";
+    foreach my $i (1..@clusters) {
+        my $filename = "Cluster" . $i . ".dat";
+        print "Writing cluster $i to file $filename\n"
+                            if $self->{_terminal_output};
+        open FILEHANDLE, "| sort > $filename"
+            or die "Unable to pen file: $!";
+        foreach my $ele (@{$clusters[$i-1]}) {        
+            print FILEHANDLE "$ele\n";
+        }
+        close FILEHANDLE;
+    }
+}
+
+sub get_K_best {
+    my $self = shift;
+    croak "You need to run the clusterer with K=0 option " .
+          "before you can call this method" 
+                            if $self->{_K_best} eq 'unknown';
+    print "The best value of K: $self->{_K_best}\n"
+                     if $self->{_terminal_output};
+    return $self->{_K_best};
+}
+
+sub show_QoC_values {
+    my $self = shift;
+    croak "You need to run the clusterer with K=0 option " .
+          "before you can call this method" 
+                            if $self->{_K_best} eq 'unknown';
+    print "Show below are K on the left and the QoC values on the right\n";
+    foreach my $key (sort keys %{$self->{_QoC_values}} ) {
+        print " $key  =>  $self->{_QoC_values}->{$key}\n";
+    }
+}
+
+sub DESTROY {
+    unlink "__temp_" . basename($_[0]->{_datafile});
 }
 
 ##################  Cluster Visualization Code #################
@@ -476,91 +582,91 @@ sub update_cluster_centers {
 #  Subsequently, we call upon the Perl interface provided by
 #  the Graphics::GnuplotIF module to plot the data clusters.
 sub visualize {
-    my %args = @_;
-    die "\n\n$0 Needs the name of the original data file with symbolic ids for all the data points that are subject to clustering and the mask string that has the same meaning as in the call to kmeans()" unless keys %args == 2; 
+    my $self = shift;
+    my $v_mask;
+    my $pause_time;
+    if (@_ == 1) {
+        $v_mask = shift || croak "visualization mask missing";
+    } elsif (@_ == 2) {
+        $v_mask = shift || croak "visualization mask missing";    
+        $pause_time = shift;
+    } else {
+        croak "visualize() called with wrong args";
+    }
+    my $master_datafile = $self->{_datafile};
 
-    use Graphics::GnuplotIF;
+    my @v_mask = split //, $v_mask;
+    my $visualization_mask_width = @v_mask;
+    my $original_data_mask = $self->{_mask};
+    my @mask = split //, $original_data_mask;
+    my $data_field_width = scalar grep {$_ eq '1'} @mask;    
 
-    my $master_datafile = $args{datafile};
-    my $mask = $args{mask};
+    croak "\n\nABORTED: The width of the visualization mask (including " .
+          "all its 1s and 0s) must equal the width of the original mask " .
+          "used for reading the data file (counting only the 1's)"
+          if $visualization_mask_width != $data_field_width;
 
-    my @mask = split //, $mask;
+    my $visualization_data_field_width = scalar grep {$_ eq '1'} @v_mask;
 
-    open INPUT, $master_datafile 
-         or die "unable to open file $master_datafile: $!\n";
-    chomp( my @raw_data = <INPUT> );
-    close INPUT;
+    my %visualization_data;
 
-    my %all_data;
-    # Transform strings into number data
-    foreach my $record (@raw_data) {
-        next if $record =~ /^#/;
+    while ( my ($record_id, $data) = each %{$self->{_data}} ) {
+        my @fields = @$data;
+        croak "\nABORTED: Visulization mask size exceeds data record size\n" 
+            if $#v_mask > $#fields;
         my @data_fields;
-        my @fields = split /\s+/, $record;
-        die "\nABORTED: Mask size does not correspond to row record size\n" 
-            if $#fields != $#mask;
-        my $record_id;
         foreach my $i (0..@fields-1) {
-            if ($mask[$i] eq '0') {
+            if ($v_mask[$i] eq '0') {
                 next;
-            } elsif ($mask[$i] eq 'I') {
-                $record_id = $fields[$i];
-            } elsif ($mask[$i] eq '1') {
+            } elsif ($v_mask[$i] eq '1') {
                 push @data_fields, $fields[$i];
             } else {
-                die "misformed mask for reading the data file\n";
+                croak "Misformed visualization mask. It can only have 1s and 0s\n";
             }
         }
-        my @nums = map {/[\d.]/;$_} @data_fields;
-        $all_data{ $record_id } = \@nums;
+        $visualization_data{ $record_id } = \@data_fields;
     }
 
-    #count the number of data fields to plot in each record
-    my $data_field_width = 0;
-    foreach my $c (@mask) {
-        $data_field_width++ if $c eq '1';
-    }
+    my @all_data_ids = @{$self->{_data_id_tags}};
 
-    my @all_data_ids = keys %all_data;
+    my $K = scalar @{$self->{_clusters}};
 
-    my @cluster_files = glob "Cluster*.dat";
-    #print "cluster files: @cluster_files\n";
-    my $K = @cluster_files;
-
-    my $temp_file = "temp_" . $master_datafile;
+    my $filename = basename($master_datafile);
+    my $temp_file = "__temp_" . $filename;
     unlink $temp_file if -e $temp_file;
-
     open OUTPUT, ">$temp_file"
            or die "Unable to open a temp file in this directory: $!\n";
-    foreach my $file (@cluster_files) {
-        open INPUT, $file or die "Cluster file $file disappeared: $!\n";
-        while (<INPUT>) {
-            chomp;
-            print OUTPUT "@{$all_data{$_}}";
+    foreach my $cluster (@{$self->{_clusters}}) {
+        foreach my $item (@$cluster) {
+            print OUTPUT "@{$visualization_data{$item}}";
             print OUTPUT "\n";
         }
-        close INPUT;
         print OUTPUT "\n\n";
     }
     close OUTPUT;
 
-    my $plot = Graphics::GnuplotIF->new( persist => 1 );
+    my $plot;
+    if (!defined $pause_time) {
+        $plot = Graphics::GnuplotIF->new( persist => 1 );
+    } else {
+        $plot = Graphics::GnuplotIF->new();
+    }
 
     $plot->gnuplot_cmd( "set noclip" );
     $plot->gnuplot_cmd( "set pointsize 2" );
 
     my $arg_string = "";
-    if ($data_field_width > 2) {
+    if ($visualization_data_field_width > 2) {
         foreach my $i (0..$K-1) {
             my $j = $i + 1;
             $arg_string .= "\"$temp_file\" index $i using 1:2:3 notitle with points lt $j pt $j, ";
         }
-    } elsif ($data_field_width == 2) {
+    } elsif ($visualization_data_field_width == 2) {
         foreach my $i (0..$K-1) {
             my $j = $i + 1;
             $arg_string .= "\"$temp_file\" index $i using 1:2 notitle with points lt $j pt $j, ";
         }
-    } elsif ($data_field_width == 1 ) {
+    } elsif ($visualization_data_field_width == 1 ) {
         foreach my $i (0..$K-1) {
             my $j = $i + 1;
             $arg_string .= "\"$temp_file\" index $i using 1 notitle with points lt $j pt $j, ";
@@ -570,15 +676,16 @@ sub visualize {
     $arg_string = $arg_string =~ /^(.*),[ ]+$/;
     $arg_string = $1;
 
-    if ($data_field_width > 2) {
+    if ($visualization_data_field_width > 2) {
         $plot->gnuplot_cmd( "splot $arg_string" );
-    } elsif ($data_field_width == 2) {
+        $plot->gnuplot_pause( $pause_time ) if defined $pause_time;
+    } elsif ($visualization_data_field_width == 2) {
         $plot->gnuplot_cmd( "plot $arg_string" );
-    } elsif ($data_field_width == 1) {
+        $plot->gnuplot_pause( $pause_time ) if defined $pause_time;
+    } elsif ($visualization_data_field_width == 1) {
         die "No provision for plotting 1-D data\n";
     }
 }
-
 
 ###########  Generating Synthetic Data for Clustering  ############
 
@@ -594,19 +701,30 @@ sub visualize {
 #  module will insist that the covariance matrix you
 #  specify be symmetric and positive definite.
 sub cluster_data_generator {
+    my $class = shift;
+    croak "illegal call of a class method" 
+        unless $class eq 'Algorithm::KMeans';
     my %args = @_;
-
     my $input_parameter_file = $args{input_parameter_file};
     my $output_file = $args{output_datafile};
     my $N = $args{number_data_points_per_cluster};
 
-    open INPUT, $input_parameter_file
-        || "unable to open parameter file: $!";
+    my @all_params;
+    my $param_string;
+    if (defined $input_parameter_file) {
+        open INPUT, $input_parameter_file
+            || "unable to open parameter file: $!";
+        @all_params = <INPUT>;
+        @all_params = grep { $_ !~ /^[ ]*#/ } @all_params;
+        chomp @all_params;
+        $param_string = join ' ', @all_params;
+    } else {
+        # Just for testing. Unsed in t/test.t
+        $param_string = "cluster 5 0 0  1 0 0 0 1 0 0 0 1 " .
+                        "cluster 0 5 0  1 0 0 0 1 0 0 0 1 " .
+                        "cluster 0 0 5  1 0 0 0 1 0 0 0 1";
+    }
 
-    my @all_params = <INPUT>;
-    @all_params = grep { $_ !~ /^[ ]*#/ } @all_params;
-    chomp @all_params;
-    my $param_string = join ' ', @all_params;
     my @cluster_strings = split /[ ]*cluster[ ]*/, $param_string;
     @cluster_strings = grep  $_, @cluster_strings;
 
@@ -615,15 +733,16 @@ sub cluster_data_generator {
     my @point_labels = ('a'..'z');
 
     print "Number of Gaussians used for the synthetic data: $K\n";
+
     my @means;
     my @covariances;
     my $data_dimension;
     foreach my $i (0..$K-1) {
         my @num_strings = split /  /, $cluster_strings[$i];
-        my @cluster_mean = map {/$num_regex/;$_} split / /, $num_strings[0];
+        my @cluster_mean = map {/$_num_regex/;$_} split / /, $num_strings[0];
         $data_dimension = @cluster_mean;
         push @means, \@cluster_mean;
-        my @covariance_nums = map {/$num_regex/;$_} split / /, $num_strings[1];
+        my @covariance_nums = map {/$_num_regex/;$_} split / /, $num_strings[1];
         die "dimensionality error" if @covariance_nums != 
                                       ($data_dimension ** 2);
         
@@ -637,15 +756,14 @@ sub cluster_data_generator {
         push @covariances, $cluster_covariance;
     }
 
-    use Math::Random;           # for normal and uniform densities
-
     random_seed_from_phrase( 'hellojello' );
 
     my @data_dump;
     foreach my $i (0..$K-1) {
         my @m = @{shift @means};
         my @covar = @{shift @covariances};
-        my @new_data = Math::Random::random_multivariate_normal( $N, @m, @covar );
+        my @new_data = Math::Random::random_multivariate_normal( $N, 
+                                                           @m, @covar );
         my $p = 0;
         my $label = $point_labels[$i];
         @new_data = map {unshift @$_, $label.$i; $i++; $_} @new_data;
@@ -661,10 +779,38 @@ sub cluster_data_generator {
         }
         print OUTPUT "\n";
     }
+    print "Data written out to file $output_file\n";
     close OUTPUT;
 }
 
+sub add_point_coords {
+    my $self = shift;
+    my @arr_of_ids = @{shift @_};      # array of data element names
+    my @result;
+    my $data_dimensionality = $self->{_data_dimensions};
+    foreach my $i (0..$data_dimensionality-1) {
+        $result[$i] = 0.0;
+    }
+    foreach my $id (@arr_of_ids) {
+        my $ele = $self->{_data}->{$id};
+        my $i = 0;
+        foreach my $component (@$ele) {
+            $result[$i] += $component;
+            $i++;
+        }
+    }
+    return \@result;
+}
+
 ######################   Support Routines  ########################
+
+sub get_index_at_value {
+    my $value = shift;
+    my @array = @{shift @_};
+    foreach my $i (0..@array-1) {
+        return $i if $value == $array[$i];
+    }
+}
 
 # This routine is really not necessary in light of the new
 # `~~' operator in Perl.  Will use the new operator in the
@@ -677,118 +823,6 @@ sub vector_equal {
         return 0 if $vec1->[$i] != $vec2->[$i];
     }
     return 1;
-}
-
-sub add_vectors {
-    my @arr_of_ids = @{shift @_};      # array of data element names
-    my @result;
-    my $data_dimensionality = @{$all_data{$arr_of_ids[0]}};
-    foreach my $i (0..$data_dimensionality-1) {
-        $result[$i] = 0.0;
-    }
-    foreach my $id (@arr_of_ids) {
-        my $ele = $all_data{$id};
-        my $i = 0;
-        foreach my $component (@$ele) {
-            $result[$i] += $component;
-            $i++;
-        }
-    }
-    return \@result;
-}
-
-sub display_cluster_centers {
-    my @cluster_center_arr = @{shift @_};
-    my $i = 1;
-    foreach my $ele (@cluster_center_arr) {
-        print "Cluster center $i: " .
-               "@{[ map {my $x = sprintf('%.4f', $_); $x} @$ele ]}\n";
-        $i++;
-    }
-}
-
-# The following routine is for computing the distance
-# between a data point specified by its symbolic name in the
-# master datafile and a point (such as the center of a
-# cluster) expressed as a vector of coordinates:
-sub distance {
-    my $ele1_id = shift @_;            # symbolic name of data sample
-    my @ele1 = @{$all_data{$ele1_id}};
-    my @ele2 = @{shift @_};
-    die "wrong data types for distance calculation\n" if @ele1 != @ele2;
-    my $how_many = @ele1;
-    my $squared_sum = 0;
-    foreach my $i (0..$how_many-1) {
-        $squared_sum += ($ele1[$i] - $ele2[$i])**2;
-    }    
-    my $dist = sqrt $squared_sum;
-    return $dist;
-}
-
-# The following routine does the same as above but now both
-# arguments are expected to be arrays of numbers:
-sub distance2 {
-    my @ele1 = @{shift @_};
-    my @ele2 = @{shift @_};
-    die "wrong data types for distance calculation\n" if @ele1 != @ele2;
-    my $how_many = @ele1;
-    my $squared_sum = 0;
-    foreach my $i (0..$how_many-1) {
-        $squared_sum += ($ele1[$i] - $ele2[$i])**2;
-    }    
-    return sqrt $squared_sum;
-}
-sub get_index_at_value {
-    my $value = shift;
-    my @array = @{shift @_};
-    foreach my $i (0..@array-1) {
-        return $i if $value == $array[$i];
-    }
-}
-
-# For displaying the individual clusters on a terminal
-# screen.  Each cluster is displayed through the symbolic
-# names associated with the data points.
-sub display_clusters {
-    my @clusters = @{shift @_};
-    my $i = 1;
-    foreach my $cluster (@clusters) {
-        @$cluster = sort @$cluster;
-        my $cluster_size = @$cluster;
-        print "\n\nCluster $i ($cluster_size records):\n";
-        foreach my $ele (@$cluster) {
-            print "  $ele";
-        }
-        $i++
-    }
-    print "\n\n";
-}
-
-sub write_clusters_out_to_files {
-    my @clusters = @{shift @_};        
-    unlink glob "Cluster*.dat";
-    foreach my $i (1..@clusters) {
-        my $filename = "Cluster" . $i . ".dat";
-        print "Writing cluster $i to file $filename\n";
-        open FILEHANDLE, "| sort > $filename"
-            or die "Unable to pen file: $!";
-        foreach my $ele (@{$clusters[$i-1]}) {        
-            print FILEHANDLE "$ele\n";
-        }
-        close FILEHANDLE;
-    }
-}
-
-# Meant only for constructing a deep copy of an array of arrays
-sub deep_copy {
-    my $ref_in = shift;
-    my $ref_out;
-    foreach my $i (0..@{$ref_in}-1) {
-        foreach my $j (0..@{$ref_in->[$i]}-1) {
-            $ref_out->[$i]->[$j] = $ref_in->[$i]->[$j];
-        }
-    }
-    return $ref_out;
 }
 
 # Returns the minimum value and its positional index in an array
@@ -822,6 +856,46 @@ sub minmax {
     return ($min, $max);
 }
 
+# Meant only for constructing a deep copy of an array of arrays
+sub deep_copy {
+    my $ref_in = shift;
+    my $ref_out;
+    foreach my $i (0..@{$ref_in}-1) {
+        foreach my $j (0..@{$ref_in->[$i]}-1) {
+            $ref_out->[$i]->[$j] = $ref_in->[$i]->[$j];
+        }
+    }
+    return $ref_out;
+}
+
+sub display_cluster_centers {
+    my @cluster_center_arr = @{shift @_};
+    my $i = 1;
+    foreach my $ele (@cluster_center_arr) {
+        print "Cluster center $i: " .
+               "@{[ map {my $x = sprintf('%.4f', $_); $x} @$ele ]}\n";
+        $i++;
+    }
+}
+
+# For displaying the individual clusters on a terminal
+# screen.  Each cluster is displayed through the symbolic
+# names associated with the data points.
+sub display_clusters {
+    my @clusters = @{shift @_};
+    my $i = 1;
+    foreach my $cluster (@clusters) {
+        @$cluster = sort @$cluster;
+        my $cluster_size = @$cluster;
+        print "\n\nCluster $i ($cluster_size records):\n";
+        foreach my $ele (@$cluster) {
+            print "  $ele";
+        }
+        $i++
+    }
+    print "\n\n";
+}
+
 # from perl docs:
 sub fisher_yates_shuffle {                
     my $arr =  shift;                
@@ -842,38 +916,116 @@ Algorithm::KMeans - Clustering multi-dimensional data with a pure-Perl implement
 
 =head1 SYNOPSIS
 
-  use Algorithm::KMeans qw(kmeans visualize cluster_data_generator);
+  use Algorithm::KMeans;
 
-  # Set the mask to tell system which columns of a datafile to use
-  # for clustering and which column contains a symbolic ID for each
-  # data record.  For example, if the ID is in the first column, if
-  # you want the second column to be ignored, and for 3D clustering
-  # from the rest:
-  my $mask = "I0111";
+  #  Name the data file:
 
-  # If you want the module to figure out the optimum number of clusters
-  # from the data in the file supplied as $datafile:
-  kmeans( datafile => $datafile,
-          mask     =>  $mask,
-          terminal_output => 1,
-          K => 0 );
+  my $datafile = "mydatafile.dat";
 
-  # If you know how many clusters you want (in this case 3):
-  kmeans( datafile => $datafile,
-          mask     =>  $mask,
-          terminal_output => 1,
-          K => 3 );
 
-  # To view the clusters formed:
-  visualize( datafile =>  $datafile,
-             mask     =>  $mask );
+  #  Set the mask to tell system which columns of the datafile to use for 
+  #  clustering and which column contains a symbolic ID for each data record.
+  #  For example, if the symbolic name is in the first column, if you want the
+  #  second column to be ignored, and you want the next three columns to be 
+  #  used for 3D clustering:
 
-  # If you want to generate your own multivariate data for clustering,
-  # you can call
-  my $N = 60;              # If you want 60 data points per cluster
-  cluster_data_generator( input_parameter_file => $parameter_file,
-                          output_datafile => $datafile,
-                          number_data_points_per_cluster => $N );
+  my $mask = "N0111";
+
+
+  #  Now construct an instance of the clusterer.  The parameter K controls 
+  #  the number of clusters.  If you know how many clusters you want (in 
+  #  this case 3), call
+
+  my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
+                                          mask     => $mask,
+                                          K        => 3,
+                                          terminal_output => 1,
+                                        );
+
+
+  #  Set K to 0 if you want the module to figure out the optimum number of 
+  #  clusters from the data (it is best to run this option with the 
+  #  terminal_output set to 1 so that you can see the different value of 
+  #  QoC for the different K):
+
+  my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
+                                          mask     => $mask,
+                                          K        => 0,
+                                          terminal_output => 1,
+                                        );
+
+
+  #  Use the following call if you wish for the clusters to be written out 
+  #  to files. Each cluster will be deposited in a file named 'ClusterX.dat' 
+  #  with X starting from 0:
+
+  my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
+                                          mask     => $mask,
+                                          K        => 3,
+                                          write_clusters_to_files => 1,
+                                        );
+
+
+  #  FOR ALL CASES ABOVE, YOU'D NEED TO MAKE THE FOLLOWING CALLS ON THE 
+  #  CLUSTERER INSTANCE TO ACTUALLY CLUSTER THE DATA:
+
+  $clusterer->read_data_from_file();
+  $clusterer->kmeans();
+
+
+  #  If you want to directly access the clusters and the cluster centers in 
+  #  your top-level script:
+
+  my ($clusters, $cluster_centers) = $clusterer->kmeans();
+
+  #  You can now access the symbolic data names in the clusters directly, 
+  #  as in:
+
+  foreach my $cluster (@$clusters) {
+      print "Cluster:   @$cluster\n\n"
+  }
+
+
+  # CLUSTER VISUALIZATION:
+
+  #  You must first set the mask for cluster visualization. This mask tells 
+  #  the module which 2D or 3D subspace of the original data space you wish 
+  #  to visualize the clusters in:
+
+  my $visualization_mask = "111";
+  $clusterer->visualize($visualization_mask);
+
+
+  # SYNTHETIC DATA GENERATION:
+
+  #  The module has been provided with a class method for generating 
+  #  multivariate data for experimenting with clustering.  The data 
+  #  generation is controlled by the contents of the parameter file that 
+  #  is supplied as an argument to the data generator method.  The mean 
+  #  and covariance matrix entries in the parameter file must be according 
+  #  to the syntax shown in the param.txt file in the examples directory.  
+  #  It is best to edit this file as needed:
+
+  my $parameter_file = "param.txt";
+  my $out_datafile = "mydatafile.dat";
+  Algorithm::KMeans->cluster_data_generator(
+                          input_parameter_file => $parameter_file,
+                          output_datafile => $out_datafile,
+                          number_data_points_per_cluster => 20 );
+
+=head1 CHANGES
+
+Version 1.1 is a an object-oriented version of the
+implementation presented in version 1.0.  The current
+version should lend itself more easily to code extension.
+You could, for example, create your own class by subclassing
+from the class presented here and, in your subclass, use your
+own criteria for the similarity distance between the data
+points and for the QoC (Quality of Clustering) metric, and,
+possibly a different rule to stop the iterations.
+
+Version 1.1 also allows you to directly access the clusters
+formed and the cluster centers in your calling script.
 
 =head1 DESCRIPTION
 
@@ -966,16 +1118,23 @@ for testing a clustering algorithm:
 
 =over
 
-=item   Algorithm::KMeans::kmeans( datafile => $data_file,
-                                   mask     =>  $mask,
-                                   terminal_output => 1,
-                                   K => 0 );
+=item new()
 
-where the keyword argument "K=>0" tells the module that you
-want it to figure out the optimum number of clusters to
-form.  The datafile keyword names the file that contains the
-data that needs to be clustered.  The data file is expected
-to contain entries in the following format
+    my $clusterer = Algorithm::KMeans->new(datafile => $datafile,
+                                           mask     => $mask,
+                                           K        => $K,
+                                           terminal_output => 1,     
+                                           write_clusters_to_files => 1,
+                                          );
+
+A call to new() constructs a new instance of the
+Algorithm::KMeans class.  When $K is a non-zero positive
+integer, the module will construct exactly that many
+clusters.  However, when $K is 0, the module will find the
+best number of clusters to partition the data into.
+
+The data file is expected to contain entries in the
+following format
 
    c20  0  10.7087017086940  9.63528386251712  10.9512155258108
    c7   0  12.8025925026787  10.6126270065785  10.5228482095349
@@ -989,52 +1148,86 @@ information.  As to which columns are actually used for
 clustering is decided by the string value of the mask.  For
 example, if we wanted to cluster on the basis of the entries
 in just the last three columns, the mask value would be
-`I0111' where the character `I' indicates that the ID tag is
+`N0111' where the character `N' indicates that the ID tag is
 in the first column, the character '0' that the second
 column is to be ignored, and '1's that the last three
 columns are to be used for clustering.
 
-The parameter `terminal_value' is boolean and determines
-what you will see on the terminal screen of the window in
-which you make these method calls.  If you set it to 1, you
-will see different clusters as lists of the symbolic IDs and
-you will also see the cluster centers, along with the QoC
-(Quality of Clustering) value for the clusters displayed.
-If this parameter is set to 0, you will see only minimal
-information.  In either case, the clusters will be written
-out to files named Cluster0.dat, Cluster1.dat, Cluster2.dat,
-etc.  Before the clusters are written to these files, the
-module destroys all files with such names in the directory
-in which you call the module.
+The parameter `terminal_output' is boolean; when not
+supplied in the call to new() it defaults to 0.  When set,
+this parameter determines what you will see on the terminal
+screen of the window in which you make these method calls.
+When set to 1, you will see on the terminal screen the
+different clusters as lists of the symbolic IDs and their
+cluster centers. You will also see the QoC (Quality of
+Clustering) value for the clusters displayed.  If this
+parameter is set to 0, you will see only minimal
+information.  
 
-=item   Algorithm::KMeans::kmeans( datafile => $data_file,
-                                   mask     =>  $mask,
-                                   terminal_output => 1,
-                                   K => $K );
+The parameter `write_clusters_to_files' is boolean; when not
+supplied in the call to new(), it defaults to 0.  When set
+to 1, the clusters are written out to files named
+    
+     Cluster0.dat 
+     Cluster1.dat 
+     Cluster2.dat
+     ...
+     ...
 
-for a non-zero integer value for the keyword `K'.  This has
-a profound effect of the behavior of the module, as it will
-now form exactly $K clusters.  
+Before the clusters are written to these files, the module
+destroys all files with such names in the directory in which
+you call the module.
 
 
-=item  Algorithm::KMeans::visualize( datafile => $datafile,
-                                     mask     =>  $mask );
+=item read_data_from_file()
 
-for visualizing the clusters formed.  The datafile is the
-same as used in the call to kmeans().  This datafile is used
-by the visualization script to extract the numerical
-coordinates associated with the symbolic ID tags in the
-cluster files.  The mask here does not have to be identical
-to the one used for clustering, but must be a subset of that
-mask.  This is convenient for visualizing the clusters formed
-in two- or three-dimensional subspaces of the original
-space, assuming that the clustering was carried out in a
-space whose dimensionality is greater than 3.
+    $clusterer->read_data_from_file()
 
-=item Algorithm::KMeans::cluster_data_generator( 
-                          input_parameter_file => $parameter_file_name,
-                          output_datafile =>  $datafile,
-                          number_data_points_per_cluster => $N );
+=item kmeans()
+
+    $clusterer->kmeans();
+
+    or 
+
+    my ($clusters, $cluster_centers) = $clusterer->kmeans();
+
+The first call above works solely by side-effect.  The
+second call also returns the clusters and the cluster
+centers.
+
+=item get_K_best()
+
+    $clusterer->get_K_best();
+
+This call makes sense only if you supply the K=0 option to
+the constructor, which would cause the KMeans algorithm to
+figure out on its own the best value for K.  Remember, K is
+the number of clusters the data is partitioned into.
+
+=item show_QoC_values()
+
+    $clusterer->show_QoC_values();
+
+presents a table with K values in the left column and the
+corresponding QoC (Quality-of-Clustering) values in the
+right column.  Note that this call makes sense only if
+supply the K=0 option to the constructor.
+
+=item visualize()
+
+    $clusterer->visualize( $visualization_mask )
+
+The visualization mask here does not have to be identical to
+the one used for clustering, but must be a subset of that
+mask.  This is convenient for visualizing the clusters in
+two- or three-dimensional subspaces of the original space.
+
+=item  cluster_data_generator()
+
+    Algorithm::KMeans->cluster_data_generator(
+                            input_parameter_file => $parameter_file,
+                            output_datafile => $out_datafile,
+                            number_data_points_per_cluster => 20 );
 
 for generating multivariate data for clustering if you wish
 to play with synthetic data for clustering.  The input
@@ -1058,7 +1251,13 @@ know.
 
 =head1 HOW ARE THE CLUSTERS OUTPUT?
 
-The module dumps the clusters into files named
+When the option terminal_output is set in the call to the
+constructor, the clusters are displayed on the terminal
+screen.
+
+When the option write_clusters_to_files is set in the call
+to the constructor, the module dumps the clusters in files
+named
 
     Cluster0.dat
     Cluster1.dat
@@ -1068,17 +1267,10 @@ The module dumps the clusters into files named
 
 in the directory in which you execute the module.  The
 number of such files will equal the number of clusters
-formed.  On each run of the kmeans() function, all such
-existing files in the directory are destroyed before fresh
-ones created.  Each cluster file consists of the symbolic ID
-tags of the data points in that cluster.
-
-It would be trivial to modify the module so that a call to
-kmeans() returns a list of hashes, each hash representing a
-different cluster, and with each hash holding the symbolic
-ID tags for the keys and their data point coordinates for
-the values.  If there is demand for such a feature, it will
-be added to the next version of this module.
+formed.  All such existing files in the directory are
+destroyed before fresh ones created.  Each cluster file
+contains the symbolic ID tags of the data points in that
+cluster.
 
 =head1 REQUIRED
 
@@ -1093,12 +1285,15 @@ and the latter for the visualization of the clusters.
 =head1 EXAMPLES
 
 See the examples directory in the distribution for how to
-make calls to the clustering and the visualization routines.
+make calls to the clustering and the visualization methods.
 The examples directory also includes a parameter file,
 param.txt, for generating synthetic data for clustering.
 Just edit this file if you would like to generate your own
 multivariate data for clustering.
 
+=head1 EXPORT
+
+None by design.
 
 =head1 CAVEATS
 
@@ -1108,10 +1303,13 @@ goal here is not the speed of execution.  On the contrary,
 the goal is to make it easy to experiment with the different
 facets of K-Means clustering.  If you need to process a
 large data file, you'd be better off with a module like
-Algorithm::Cluster.  But note that when you use a wrapper
-module in which it is a C library that is actually doing the
-job of clustering for you, it is more daunting to experiment
-with various aspects of clustering.
+Algorithm::Cluster.  However note that when you use a
+wrapper module in which it is a C library that is actually
+doing the job of clustering for you, it is more difficult to
+experiment with the various aspects of clustering.  At the
+least, you have to recompile the code for every change you
+make to the source code of a low-level library.  You are
+spared that frustration with an all-Perl implementation.
 
 Clustering usually does not work well when the data is
 highly anisotropic, that is, when the data has very
@@ -1131,8 +1329,9 @@ include those enhancements.
 
 =head1 BUGS
 
-Please send me email if you find any bugs.  They will
-be dealt with promptly.
+Please send me email to the author if you find any bugs.
+They will be dealt with promptly. When sending email, please
+place the string 'KMeans' in the subject line.
 
 =head1 INSTALLATION
 
@@ -1149,6 +1348,14 @@ if you have root access.  If not,
     make
     make test
     make install
+
+=head1 THANKS
+
+Chad Aeschliman was kind enough to test out the interface of
+this module and to give suggestions for its improvement.  His
+key slogan: "If you cannot figure out how to use a module in
+under 10 minutes, it's not going to be used."  That should
+explain the longish Synopsis included here.
 
 =head1 AUTHOR
 

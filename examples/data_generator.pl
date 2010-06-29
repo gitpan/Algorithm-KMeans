@@ -1,9 +1,9 @@
 #!/usr/bin/perl -w
 
-use lib '../blib/lib','../blib/arch';
+#use lib '../blib/lib', '../blib/arch';
 
-use Algorithm::KMeans qw(kmeans visualize cluster_data_generator);
-
+use strict;
+use Algorithm::KMeans;
 
 # The Parameter File:
 
@@ -15,7 +15,11 @@ use Algorithm::KMeans qw(kmeans visualize cluster_data_generator);
 # edit this file as needed for the purpose of data
 # generation.
 
-cluster_data_generator( input_parameter_file => "param.txt",
-                        output_datafile => "mynewdatafile.dat",
-                        number_data_points_per_cluster => 10 );
+my $parameter_file = "param.txt";
+my $out_datafile = "mydatafile1.dat";
+
+Algorithm::KMeans->cluster_data_generator( 
+                        input_parameter_file => $parameter_file,
+                        output_datafile => $out_datafile,
+                        number_data_points_per_cluster => 20 );
 
