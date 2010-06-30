@@ -18,7 +18,7 @@ use File::Basename;
 use Math::Random;
 use Graphics::GnuplotIF;
 
-our $VERSION = '1.1';
+our $VERSION = '1.1.1';
 
 # from perl docs:
 my $_num_regex =  '^[+-]?\ *(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$'; 
@@ -30,11 +30,13 @@ sub new {
         _datafile         =>   $args{datafile} || croak("datafile required"),
         _mask             =>   $args{mask}     || croak("mask required"),
         _K                =>   $args{K}        || 0,
+        _K_best           =>   'unknown',
+        _K_min            =>   $args{Kmin} || 'unknown',
+        _K_max            =>   $args{Kmax} || 'unknown',
         _terminal_output  =>   $args{terminal_output} || 0,
         _data             =>   {},
         _data_id_tags     =>   [],
         _N                =>   0,
-        _K_best           =>   'unknown',
         _QoC_values       =>   {},
         _clusters         =>   [],
         _cluster_centers  =>   [],
@@ -92,7 +94,9 @@ sub read_data_from_file {
 sub kmeans {
     my $self = shift;
     my $K = $self->{_K};
-    if ($K == 0) {
+    if ( ($K == 0) ||
+              ( ($self->{_K_min} ne 'unknown') &&
+                ($self->{_K_max} ne 'unknown') ) ) {
         $self->iterate_through_K();
     } elsif ( $K =~ /\d+/) {
         $self->cluster_for_fixed_K_multiple_tries($K);
@@ -173,12 +177,22 @@ sub iterate_through_K {
         "must satisfy the relation N = 2xK**2 where K is the " .
         "number of clusters.  The smallest value for K is 2.\n"
         if $N <= 8;
-    my $Kmax = int( sqrt( $N / 2.0 ) );
+    my $K_statistical_max = int( sqrt( $N / 2.0 ) );
+    my $Kmin = $self->{_K_min} eq 'unknown' 
+                          ? 2
+                          : $self->{_K_min};
+    my $Kmax = $self->{_K_max} eq 'unknown' 
+                          ? int( sqrt( $N / 2.0 ) )
+                          : $self->{_K_max};
+    die  "\n\nYour Kmax value is too high.  Ideally, it should " .
+         "not exceed sqrt(N/2) where N is the number of data points"
+          if $Kmax > $K_statistical_max;
+
     print "Value of Kmax is: $Kmax\n" if $self->{_terminal_output};
     my @QoC_values;
     my @array_of_clusters;
     my @array_of_cluster_centers;
-    foreach my $K (2..$Kmax) {
+    foreach my $K ($Kmin..$Kmax) {
         my $QoC;
         my $clusters;
         my $cluster_centers;
@@ -200,26 +214,26 @@ sub iterate_through_K {
     }
     my ($min, $max) = minmax( \@QoC_values );
     die "Unsuccessful. Try again.\n" if ($max - $min ) < 0.00001;
-    my $K_minus_2_best = get_index_at_value($min, \@QoC_values );
-    my $K_best = $K_minus_2_best + 2;
+    my $K_best_relative_to_Kmin = get_index_at_value($min, \@QoC_values );
+    my $K_best = $K_best_relative_to_Kmin + $Kmin;
 
     if ($self->{_terminal_output}) {
         print "\nDisplaying final clusters for best K (= $K_best) :\n";
-        display_clusters( $array_of_clusters[$K_minus_2_best] );
-        display_cluster_centers( $array_of_cluster_centers[$K_minus_2_best] );
+        display_clusters( $array_of_clusters[$K_best_relative_to_Kmin] );
+        display_cluster_centers( 
+                   $array_of_cluster_centers[$K_best_relative_to_Kmin] );
         print "\nBest clustering achieved for K=$K_best with QoC = $min\n";
-        print "QoC values array for different K starting with K=2:  @QoC_values\n";
-#       print "QoC values array for different K: " . 
-#               "@{[ map {my $x = sprintf('%.4f', $_); $x} @QoC_values ]}\n";
+        print "QoC values array for different K starting " .
+                            "with K=$Kmin:  @QoC_values\n";
     }
     $self->{_K_best} = $K_best;
-#    $self->{_QoC_values} = \@QoC_values;
     foreach my $i (0..@QoC_values-1) {
-        my $k = $i + 2;
+        my $k = $i + $Kmin;
         $self->{_QoC_values}->{"$k"} = $QoC_values[$i]; 
     }
-    $self->{_clusters} = $array_of_clusters[$K_minus_2_best];
-    $self->{_cluster_centers} =  $array_of_cluster_centers[$K_minus_2_best];
+    $self->{_clusters} = $array_of_clusters[$K_best_relative_to_Kmin];
+    $self->{_cluster_centers} =  
+                $array_of_cluster_centers[$K_best_relative_to_Kmin];
 }
 
 # This is the function to call if you already know what
@@ -954,6 +968,16 @@ Algorithm::KMeans - Clustering multi-dimensional data with a pure-Perl implement
                                           terminal_output => 1,
                                         );
 
+  #  For very large data files, setting K to 0 will result in searching
+  #  through too many values for K.  For such cases, you can range limit
+  #  the values of K to search through by
+
+  my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
+                                          mask     => "N111",
+                                          Kmin     => 3,
+                                          Kmax     => 10,
+                                          terminal_output => 1,
+                                        );
 
   #  Use the following call if you wish for the clusters to be written out 
   #  to files. Each cluster will be deposited in a file named 'ClusterX.dat' 
@@ -961,7 +985,7 @@ Algorithm::KMeans - Clustering multi-dimensional data with a pure-Perl implement
 
   my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
                                           mask     => $mask,
-                                          K        => 3,
+                                          K        => $K,
                                           write_clusters_to_files => 1,
                                         );
 
@@ -1011,19 +1035,23 @@ Algorithm::KMeans - Clustering multi-dimensional data with a pure-Perl implement
   Algorithm::KMeans->cluster_data_generator(
                           input_parameter_file => $parameter_file,
                           output_datafile => $out_datafile,
-                          number_data_points_per_cluster => 20 );
+                          number_data_points_per_cluster => $N );
 
 =head1 CHANGES
+
+Version 1.1.1 allows for range limiting the values of K to
+search through.  K stands for the number of clusters to
+form.  This version also declares the module dependencies in
+the Makefile.PL file.
 
 Version 1.1 is a an object-oriented version of the
 implementation presented in version 1.0.  The current
 version should lend itself more easily to code extension.
 You could, for example, create your own class by subclassing
-from the class presented here and, in your subclass, use your
-own criteria for the similarity distance between the data
-points and for the QoC (Quality of Clustering) metric, and,
-possibly a different rule to stop the iterations.
-
+from the class presented here and, in your subclass, use
+your own criteria for the similarity distance between the
+data points and for the QoC (Quality of Clustering) metric,
+and, possibly a different rule to stop the iterations.
 Version 1.1 also allows you to directly access the clusters
 formed and the cluster centers in your calling script.
 
@@ -1042,9 +1070,9 @@ for measuring the quality of the clustering achieved, etc.
 
 A K-Means clusterer is a poor man's implementation of the EM
 algorithm.  EM stands for Expectation Maximization. For the
-case of Gaussian data, the results obtained with a good
-K-Means implementation should match those obtained with the
-EM algorithm. Clustering with K-Means takes place
+case of isotropic Gaussian data, the results obtained with a
+good K-Means implementation should match those obtained with
+the EM algorithm. Clustering with K-Means takes place
 iteratively and involves two steps: 1) assignment of data
 samples to clusters; and 2) Recalculation of the cluster
 centers.  The assignment step can be shown to be akin to the
@@ -1136,9 +1164,9 @@ best number of clusters to partition the data into.
 The data file is expected to contain entries in the
 following format
 
-   c20  0  10.7087017086940  9.63528386251712  10.9512155258108
-   c7   0  12.8025925026787  10.6126270065785  10.5228482095349
-   b9   0  7.60118206283120  5.05889245193079  5.82841781759102
+   c20  0  10.7087017086940  9.63528386251712  10.9512155258108  ...
+   c7   0  12.8025925026787  10.6126270065785  10.5228482095349  ...
+   b9   0  7.60118206283120  5.05889245193079  5.82841781759102  ...
    ....
    ....
 
@@ -1147,10 +1175,11 @@ data record and the rest of the columns the numerical
 information.  As to which columns are actually used for
 clustering is decided by the string value of the mask.  For
 example, if we wanted to cluster on the basis of the entries
-in just the last three columns, the mask value would be
-`N0111' where the character `N' indicates that the ID tag is
-in the first column, the character '0' that the second
-column is to be ignored, and '1's that the last three
+in just the 3rd, the 4th, and the 5th columns above, the
+mask value would be `N0111' where the character `N'
+indicates that the ID tag is in the first column, the
+character '0' that the second column is to be ignored, and
+the '1's that follow that the 3rd, the 4th, and the 5th
 columns are to be used for clustering.
 
 The parameter `terminal_output' is boolean; when not
@@ -1160,9 +1189,7 @@ screen of the window in which you make these method calls.
 When set to 1, you will see on the terminal screen the
 different clusters as lists of the symbolic IDs and their
 cluster centers. You will also see the QoC (Quality of
-Clustering) value for the clusters displayed.  If this
-parameter is set to 0, you will see only minimal
-information.  
+Clustering) value for the clusters displayed. 
 
 The parameter `write_clusters_to_files' is boolean; when not
 supplied in the call to new(), it defaults to 0.  When set
@@ -1178,6 +1205,20 @@ Before the clusters are written to these files, the module
 destroys all files with such names in the directory in which
 you call the module.
 
+If you wish for the clusterer to search through a
+(Kmin,Kmax) range of values for K, the constructor should be
+called in the following fashion:
+
+    my $clusterer = Algorithm::KMeans->new(datafile => $datafile,
+                                           mask     => $mask,
+                                           Kmin     => 3,
+                                           Kmax     => 10,
+                                           terminal_output => 1,     
+                                          );
+
+where obviously you can choose any reasonable values for
+Kmin and Kmax.  If you choose a value for Kmax that is
+statistically too large, the module will let you know.
 
 =item read_data_from_file()
 
@@ -1199,10 +1240,12 @@ centers.
 
     $clusterer->get_K_best();
 
-This call makes sense only if you supply the K=0 option to
-the constructor, which would cause the KMeans algorithm to
-figure out on its own the best value for K.  Remember, K is
-the number of clusters the data is partitioned into.
+This call makes sense only if you supply either the K=0
+option to the constructor, or you specify values for the
+Kmin and Kmax options. The K=0 and the (Kmin,Kmax) options
+cause the KMeans algorithm to figure out on its own the best
+value for K.  Remember, K is the number of clusters the data
+is partitioned into.
 
 =item show_QoC_values()
 
@@ -1210,8 +1253,9 @@ the number of clusters the data is partitioned into.
 
 presents a table with K values in the left column and the
 corresponding QoC (Quality-of-Clustering) values in the
-right column.  Note that this call makes sense only if
-supply the K=0 option to the constructor.
+right column.  Note that this call makes sense only if you
+either supply the K=0 option to the constructor, or you
+specify values for the Kmin and Kmax options.
 
 =item visualize()
 

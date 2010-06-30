@@ -81,13 +81,24 @@
                                           terminal_output =&gt; 1,
                                         );</pre>
 <pre>
+  #  For very large data files, setting K to 0 will result in searching
+  #  through too many values for K.  For such cases, you can range limit
+  #  the values of K to search through by</pre>
+<pre>
+  my $clusterer = Algorithm::KMeans-&gt;new( datafile =&gt; $datafile,
+                                          mask     =&gt; &quot;N111&quot;,
+                                          Kmin     =&gt; 3,
+                                          Kmax     =&gt; 10,
+                                          terminal_output =&gt; 1,
+                                        );</pre>
+<pre>
   #  Use the following call if you wish for the clusters to be written out 
   #  to files. Each cluster will be deposited in a file named 'ClusterX.dat' 
   #  with X starting from 0:</pre>
 <pre>
   my $clusterer = Algorithm::KMeans-&gt;new( datafile =&gt; $datafile,
                                           mask     =&gt; $mask,
-                                          K        =&gt; 3,
+                                          K        =&gt; $K,
                                           write_clusters_to_files =&gt; 1,
                                         );</pre>
 <pre>
@@ -133,20 +144,24 @@
   Algorithm::KMeans-&gt;cluster_data_generator(
                           input_parameter_file =&gt; $parameter_file,
                           output_datafile =&gt; $out_datafile,
-                          number_data_points_per_cluster =&gt; 20 );</pre>
+                          number_data_points_per_cluster =&gt; $N );</pre>
 <p>
 </p>
 <hr />
 <h1><a name="changes">CHANGES</a></h1>
+<p>Version 1.1.1 allows for range limiting the values of K to
+search through.  K stands for the number of clusters to
+form.  This version also declares the module dependencies in
+the Makefile.PL file.</p>
 <p>Version 1.1 is a an object-oriented version of the
 implementation presented in version 1.0.  The current
 version should lend itself more easily to code extension.
 You could, for example, create your own class by subclassing
-from the class presented here and, in your subclass, use your
-own criteria for the similarity distance between the data
-points and for the QoC (Quality of Clustering) metric, and,
-possibly a different rule to stop the iterations.</p>
-<p>Version 1.1 also allows you to directly access the clusters
+from the class presented here and, in your subclass, use
+your own criteria for the similarity distance between the
+data points and for the QoC (Quality of Clustering) metric,
+and, possibly a different rule to stop the iterations.
+Version 1.1 also allows you to directly access the clusters
 formed and the cluster centers in your calling script.</p>
 <p>
 </p>
@@ -164,9 +179,9 @@ condition for accepting final clusters, the criterion used
 for measuring the quality of the clustering achieved, etc.</p>
 <p>A K-Means clusterer is a poor man's implementation of the EM
 algorithm.  EM stands for Expectation Maximization. For the
-case of Gaussian data, the results obtained with a good
-K-Means implementation should match those obtained with the
-EM algorithm. Clustering with K-Means takes place
+case of isotropic Gaussian data, the results obtained with a
+good K-Means implementation should match those obtained with
+the EM algorithm. Clustering with K-Means takes place
 iteratively and involves two steps: 1) assignment of data
 samples to clusters; and 2) Recalculation of the cluster
 centers.  The assignment step can be shown to be akin to the
@@ -251,9 +266,9 @@ best number of clusters to partition the data into.</p>
 <p>The data file is expected to contain entries in the
 following format</p>
 <pre>
-   c20  0  10.7087017086940  9.63528386251712  10.9512155258108
-   c7   0  12.8025925026787  10.6126270065785  10.5228482095349
-   b9   0  7.60118206283120  5.05889245193079  5.82841781759102
+   c20  0  10.7087017086940  9.63528386251712  10.9512155258108  ...
+   c7   0  12.8025925026787  10.6126270065785  10.5228482095349  ...
+   b9   0  7.60118206283120  5.05889245193079  5.82841781759102  ...
    ....
    ....</pre>
 <p>where the first column contains the symbolic ID tag for each
@@ -261,10 +276,11 @@ data record and the rest of the columns the numerical
 information.  As to which columns are actually used for
 clustering is decided by the string value of the mask.  For
 example, if we wanted to cluster on the basis of the entries
-in just the last three columns, the mask value would be
-`N0111' where the character `N' indicates that the ID tag is
-in the first column, the character '0' that the second
-column is to be ignored, and '1's that the last three
+in just the 3rd, the 4th, and the 5th columns above, the
+mask value would be `N0111' where the character `N'
+indicates that the ID tag is in the first column, the
+character '0' that the second column is to be ignored, and
+the '1's that follow that the 3rd, the 4th, and the 5th
 columns are to be used for clustering.</p>
 <p>The parameter `terminal_output' is boolean; when not
 supplied in the call to <a href="#new"><code>new()</code></a> it defaults to 0.  When set,
@@ -273,9 +289,7 @@ screen of the window in which you make these method calls.
 When set to 1, you will see on the terminal screen the
 different clusters as lists of the symbolic IDs and their
 cluster centers. You will also see the QoC (Quality of
-Clustering) value for the clusters displayed.  If this
-parameter is set to 0, you will see only minimal
-information.</p>
+Clustering) value for the clusters displayed.</p>
 <p>The parameter `write_clusters_to_files' is boolean; when not
 supplied in the call to <a href="#new"><code>new()</code></a>, it defaults to 0.  When set
 to 1, the clusters are written out to files named</p>
@@ -289,6 +303,19 @@ to 1, the clusters are written out to files named</p>
 <p>Before the clusters are written to these files, the module
 destroys all files with such names in the directory in which
 you call the module.</p>
+<p>If you wish for the clusterer to search through a
+(Kmin,Kmax) range of values for K, the constructor should be
+called in the following fashion:</p>
+<pre>
+    my $clusterer = Algorithm::KMeans-&gt;new(datafile =&gt; $datafile,
+                                           mask     =&gt; $mask,
+                                           Kmin     =&gt; 3,
+                                           Kmax     =&gt; 10,
+                                           terminal_output =&gt; 1,     
+                                          );</pre>
+<p>where obviously you can choose any reasonable values for
+Kmin and Kmax.  If you choose a value for Kmax that is
+statistically too large, the module will let you know.</p>
 </dd>
 <dt><strong><a name="read_data_from_file" class="item"><code>read_data_from_file()</code></a></strong></dt>
 
@@ -314,10 +341,12 @@ centers.</p>
 <dd>
 <pre>
     $clusterer-&gt;get_K_best();</pre>
-<p>This call makes sense only if you supply the K=0 option to
-the constructor, which would cause the KMeans algorithm to
-figure out on its own the best value for K.  Remember, K is
-the number of clusters the data is partitioned into.</p>
+<p>This call makes sense only if you supply either the K=0
+option to the constructor, or you specify values for the
+Kmin and Kmax options. The K=0 and the (Kmin,Kmax) options
+cause the KMeans algorithm to figure out on its own the best
+value for K.  Remember, K is the number of clusters the data
+is partitioned into.</p>
 </dd>
 <dt><strong><a name="show_qoc_values" class="item"><code>show_QoC_values()</code></a></strong></dt>
 
@@ -326,8 +355,9 @@ the number of clusters the data is partitioned into.</p>
     $clusterer-&gt;show_QoC_values();</pre>
 <p>presents a table with K values in the left column and the
 corresponding QoC (Quality-of-Clustering) values in the
-right column.  Note that this call makes sense only if
-supply the K=0 option to the constructor.</p>
+right column.  Note that this call makes sense only if you
+either supply the K=0 option to the constructor, or you
+specify values for the Kmin and Kmax options.</p>
 </dd>
 <dt><strong><a name="visualize" class="item"><code>visualize()</code></a></strong></dt>
 

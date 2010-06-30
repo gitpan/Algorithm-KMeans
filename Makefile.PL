@@ -10,8 +10,15 @@ if ($^V lt v5.10) {
 copy("perl/MANIFEST.perl","MANIFEST");
 
 WriteMakefile(
-	NAME         => 'Algorithm::KMeans',
-	VERSION_FROM => 'KMeans.pm',
-        AUTHOR       => 'Avinash Kak (kak@purdue.edu)',
-        ABSTRACT     => 'A pure-Perl implementation of K-Means Clustering',
+    NAME         => 'Algorithm::KMeans',
+    VERSION_FROM => 'lib/Algorithm/KMeans.pm',
+    PREREQ_PM    => { Math::Random => '0.71',
+                      Graphics::GnuplotIF => '1.4',
+                    },
+    AUTHOR       => 'Avinash Kak (kak@purdue.edu)',
+    ABSTRACT     => 'A pure-Perl implementation of K-Means Clustering',
+    clean        => {FILES => join(" ",
+                                   map { "$_ */$_ */*/$_" }
+                                   qw( *% *.html *.b[ac]k *.old *.orig ) )
+                    },
 );
