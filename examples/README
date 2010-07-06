@@ -1,0 +1,52 @@
+
+Examples directory:
+
+
+1)  For the most basic clustering (with fixed K):
+
+        cluster_and_visualize.pl
+
+
+2)  For clustering with an unknown value for K:
+
+       find_best_K_and_cluster.pl
+
+
+3)  If your datafile is too large, you may need to 
+    range limit the values of K that are searched through
+
+       find_best_K_in_range_and_cluster.pl
+
+
+4)  If you also want to include data normalization (it
+    may reduce the performance of the clusterer in some
+    cases):
+
+       cluster_after_data_normalization.pl
+
+
+5)  When you include the data normalization step and
+    you would like to visualize the data before and
+    after normalization:
+
+       cluster_and_visualize_with_data_visualization.pl*
+
+=========================================================
+
+Support scripts:
+
+
+6)  For generating the data for experiments with clustering
+
+       data_generator.pl
+
+
+7)  For cleaning up the examples directory
+
+       cleanup_directory.pl
+
+
+
+
+
+

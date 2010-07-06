@@ -25,6 +25,7 @@ my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
                                         mask     => "N111",
                                         K        => 0,
                                         terminal_output => 1,
+#                                        do_variance_normalization => 1,
                                         write_clusters_to_files => 1,
     );
 
@@ -56,5 +57,5 @@ $clusterer->show_QoC_values();
 # original data mask.
 
 my $visualization_mask = "111";
-$clusterer->visualize($visualization_mask);
+$clusterer->visualize_clusters($visualization_mask);
 

@@ -44,5 +44,5 @@ $clusterer->show_QoC_values();
 # original data mask.
 
 my $visualization_mask = "111";
-$clusterer->visualize($visualization_mask);
+$clusterer->visualize_clusters($visualization_mask);
 

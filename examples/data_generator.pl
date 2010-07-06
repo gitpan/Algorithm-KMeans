@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-#use lib '../blib/lib', '../blib/arch';
+use lib '../blib/lib', '../blib/arch';
 
 use strict;
 use Algorithm::KMeans;
@@ -21,5 +21,5 @@ my $out_datafile = "mydatafile1.dat";
 Algorithm::KMeans->cluster_data_generator( 
                         input_parameter_file => $parameter_file,
                         output_datafile => $out_datafile,
-                        number_data_points_per_cluster => 20 );
+                        number_data_points_per_cluster => 30 );
 

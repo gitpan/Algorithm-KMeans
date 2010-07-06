@@ -31,7 +31,7 @@ ok( @$clusters == 3,  'Clustering works' );
 eval {
     my $visualization_mask = "111";
     my $pause_time = 2;
-    $clusterer->visualize($visualization_mask, $pause_time);
+    $clusterer->visualize_clusters($visualization_mask, $pause_time);
 };
 print ${$@} if ($@); 
 

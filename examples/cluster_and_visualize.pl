@@ -24,8 +24,8 @@ my $mask = "N111";
 my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
                                         mask     => "N111",
                                         K        => 3,
-#                                        terminal_output => 1,
-                                        write_clusters_to_files => 1,
+                                        terminal_output => 1,
+#                                        write_clusters_to_files => 1,
     );
 
 $clusterer->read_data_from_file();
@@ -54,5 +54,6 @@ foreach my $cluster (@$clusters) {
 # original data mask.
 
 my $visualization_mask = "111";
-$clusterer->visualize($visualization_mask);
+
+$clusterer->visualize_clusters($visualization_mask);
 
