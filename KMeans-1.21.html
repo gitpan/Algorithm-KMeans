@@ -54,7 +54,7 @@
 <pre>
   #  Next, set the mask to indicate which columns of the datafile to use for clustering and
   #  which column contains a symbolic ID for each data record. For example, if the symbolic 
-  #  name is in the first column, if you want the second column to be ignored, and if 
+  #  name is in the first column, if you want the second column to be ignored and 
   #  you want the next three columns to be used for 3D clustering:</pre>
 <pre>
   my $mask = &quot;N0111&quot;;</pre>
@@ -97,7 +97,7 @@
                                           terminal_output =&gt; 1,
                                         );</pre>
 <pre>
-  #  Althogh not shown above, you can obviously set the 'do_variance_normalization' 
+  #  Although not shown above, you can obviously set the 'do_variance_normalization' 
   #  flag here also if you wish.</pre>
 <pre>
   #  For very large data files, setting K to 0 will result in searching through 
@@ -166,6 +166,13 @@
 </p>
 <hr />
 <h1><a name="changes">CHANGES</a></h1>
+<p>Version 1.21 includes fixes to handle the possibility that,
+when clustering the data for a fixed number of clusters, a
+cluster may become empty during iterative calculation of
+cluster assignments of the data elements and the updating of
+the cluster centers.  The code changes are in the
+<code>assign_data_to_clusters()</code> and <code>update_cluster_centers()</code>
+subroutines.</p>
 <p>Version 1.20 includes an option to normalize the data with
 respect to its variability along the different coordinates
 before clustering is carried out.  This can be a useful
@@ -602,6 +609,14 @@ subject line.</p>
 </p>
 <hr />
 <h1><a name="thanks">THANKS</a></h1>
+<p>Version 1.21 came about in response to the problems
+encountered by Luis Fernando D'Haro with version 1.20.
+Although the module would yield the clusters for some of its
+runs, more frequently than not the module would abort with
+an &quot;empty cluster&quot; message for his data. Luis Fernando has
+also suggested other improvements (such as clustering
+directly from the contents of a hash) that I intend to make
+in future versions of this module.  Thanks Luis Fernando.</p>
 <p>Chad Aeschliman was kind enough to test out the interface of
 this module and to give suggestions for its improvement.  His
 key slogan: &quot;If you cannot figure out how to use a module in

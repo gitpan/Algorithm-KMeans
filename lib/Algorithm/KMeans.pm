@@ -18,7 +18,7 @@ use File::Basename;
 use Math::Random;
 use Graphics::GnuplotIF;
 
-our $VERSION = '1.20';
+our $VERSION = '1.21';
 
 # from perl docs:
 my $_num_regex =  '^[+-]?\ *(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$'; 
@@ -97,10 +97,14 @@ sub read_data_from_file {
     my @all_data_ids = keys %{$self->{_data}};
     $self->{_data_id_tags} = \@all_data_ids;
     $self->{_N} = scalar @all_data_ids;
-    croak "You need at least 8 data samples. The number of data points " .
-        "must satisfy the relation N = 2xK**2 where K is the " .
-        "number of clusters.  The smallest value for K is 2.\n"
-        if $self->{_N} < 8;
+    if ( defined($self->{_K}) && ($self->{_K} > 0) ) {
+        carp "\n\nWARNING: YOUR K VALUE IS TOO LARGE.\n The number of data " .
+             "points must satisfy the relation N > 2xK**2 where K is " .
+             "the number of clusters requested for the clusters to be " .
+             "meaningful $!" 
+                         if ( $self->{_N} < (2 * $self->{_K} ** 2) );
+        print "\n\n\n";
+    }
 }
 
 sub kmeans {
@@ -140,7 +144,10 @@ sub cluster_for_fixed_K_multiple_tries {
     foreach my $trial (1..20) {
         my ($new_clusters, $new_cluster_centers) =
                               $self->cluster_for_given_K($K);
-
+        # The following statement introduced in Version 1.21 to
+        # protect against calling cluster_quality() when all of
+        # the data has been placed in a single cluster.
+        next if @$new_clusters <= 1;
         my $newQoC = $self->cluster_quality( $new_clusters, 
                                              $new_cluster_centers );
         if ( (!defined $QoC) || ($newQoC < $QoC) ) {
@@ -216,7 +223,7 @@ sub iterate_through_K {
         my $clusters;
         my $cluster_centers;
         print "Clustering for K = $K\n" if $self->{_terminal_output};
-        foreach my $trial (1..20) {
+        foreach my $trial (1..21) {
             my ($new_clusters, $new_cluster_centers) = 
                            $self->cluster_for_given_K($K);
             my $newQoC = $self->cluster_quality( $new_clusters, 
@@ -387,7 +394,8 @@ sub assign_data_to_clusters {
         my $current_cluster_center_index = 0;
         my $cluster_size_zero_condition = 0;
         my $how_many = @$clusters;
-        my $cluster_centers = $self->update_cluster_centers( $clusters );
+        my $cluster_centers = $self->update_cluster_centers( 
+                                    deep_copy_AoA_with_nulls( $clusters ) );
         $iteration_index++;
         foreach my $cluster (@$clusters) {
             my $current_cluster_center = 
@@ -413,6 +421,15 @@ sub assign_data_to_clusters {
             }
             $current_cluster_center_index++;
         }
+       
+        #DIAGNOSTIC PROBE 1.21
+        #my $Yclusters = deep_copy_AoA_with_nulls( $clusters );
+        #my $Ydatacount = 0;
+        #foreach my $YYYcluster (@$Yclusters) {
+        #    $Ydatacount += @$Ycluster if defined $Ycluster;
+        #}
+        #print "Probe in the middle: Total number of data elements in all clusters: $Ydatacount\n";
+
         # Now make sure that we still have K clusters since K is fixed:
         next if ((@$new_clusters != @$clusters) && ($iteration_index < 100));
         # Now make sure that none of the K clusters is an empty cluster:
@@ -420,6 +437,28 @@ sub assign_data_to_clusters {
             $cluster_size_zero_condition = 1 if ((!defined $newcluster) 
                                              or  (@$newcluster == 0));
         }
+        
+        # START for code added for 1.21
+        push @$new_clusters, (undef) x ($K - @$new_clusters)
+                                         if @$new_clusters < $K;
+        # During clustering for a fixed K, should a cluster inadvertantly
+        # become empty, steal a member from the largest cluster to hopefully
+        # spawn a new cluster:
+        my $largest_cluster;
+        foreach my $local_cluster (@$new_clusters) {
+            next if !defined $local_cluster;
+            $largest_cluster = $local_cluster if !defined $largest_cluster;
+            if (@$local_cluster > @$largest_cluster) {
+                $largest_cluster = $local_cluster; 
+            }
+        }        
+        foreach my $local_cluster (@$new_clusters) {
+            if ( (!defined $local_cluster) || (@$local_cluster == 0) ) {
+                push @$local_cluster, pop @$largest_cluster;
+            }
+        }
+        # END for code added for 1.21
+
         next if (($cluster_size_zero_condition) && ($iteration_index < 100));
         last if $iteration_index == 100;
         # Now do a deep copy of new_clusters into clusters
@@ -438,6 +477,26 @@ sub update_cluster_centers {
     my $self = shift;
     my @clusters = @{ shift @_ };
     my @new_cluster_centers;
+
+    # START for code added for 1.21
+    # During clustering for a fixed K, should a cluster inadvertantly
+    # become empty, steal a member from the largest cluster to hopefully
+    # spawn a new cluster:
+    my $largest_cluster;
+    foreach my $cluster (@clusters) {
+        next if !defined $cluster;
+        $largest_cluster = $cluster if !defined $largest_cluster;
+        if (@$cluster > @$largest_cluster) {
+            $largest_cluster = $cluster; 
+        }
+    }        
+    foreach my $cluster (@clusters) {
+        if ( (!defined $cluster) || (@$cluster == 0) ) {
+            push @$cluster, pop @$largest_cluster;
+        }
+    }
+    # END for code added for 1.21
+
     foreach my $cluster (@clusters) {
         die "Cluster became empty --- untenable condition " .
             "for a given K.  Try again. \n" if !defined $cluster;
@@ -1009,7 +1068,7 @@ sub minmax {
 }
 
 # Meant only for constructing a deep copy of an array of
-# arrays
+# arrays:
 sub deep_copy_AoA {
     my $ref_in = shift;
     my $ref_out;
@@ -1021,8 +1080,26 @@ sub deep_copy_AoA {
     return $ref_out;
 }
 
+# Meant only for constructing a deep copy of an array of
+# arrays for the case when some elements of the top-level array
+# may be undefined:
+sub deep_copy_AoA_with_nulls {
+    my $ref_in = shift;
+    my $ref_out;
+    foreach my $i (0..@{$ref_in}-1) {
+        if ( !defined $ref_in->[$i] ) {
+            $ref_out->[$i] = undef;
+            next;
+        }
+        foreach my $j (0..@{$ref_in->[$i]}-1) {
+            $ref_out->[$i]->[$j] = $ref_in->[$i]->[$j];
+        }
+    }
+    return $ref_out;
+}
+
 # Meant only for constructing a deep copy of a hash in which
-# each value is an anonymous array of numbers
+# each value is an anonymous array of numbers:
 sub deep_copy_hash {
     my $ref_in = shift;
     my $ref_out;
@@ -1032,7 +1109,7 @@ sub deep_copy_hash {
     return $ref_out;
 }
 
-# Meant only for an array of numbers
+# Meant only for an array of numbers:
 sub deep_copy_array {
     my $ref_in = shift;
     my $ref_out;
@@ -1178,7 +1255,7 @@ Algorithm::KMeans - Clustering multi-dimensional data with a pure-Perl implement
 
   #  Next, set the mask to indicate which columns of the datafile to use for clustering and
   #  which column contains a symbolic ID for each data record. For example, if the symbolic 
-  #  name is in the first column, if you want the second column to be ignored, and if 
+  #  name is in the first column, if you want the second column to be ignored and 
   #  you want the next three columns to be used for 3D clustering:
 
   my $mask = "N0111";
@@ -1222,7 +1299,7 @@ Algorithm::KMeans - Clustering multi-dimensional data with a pure-Perl implement
                                           terminal_output => 1,
                                         );
 
-  #  Althogh not shown above, you can obviously set the 'do_variance_normalization' 
+  #  Although not shown above, you can obviously set the 'do_variance_normalization' 
   #  flag here also if you wish.
 
   #  For very large data files, setting K to 0 will result in searching through 
@@ -1293,6 +1370,14 @@ Algorithm::KMeans - Clustering multi-dimensional data with a pure-Perl implement
                           number_data_points_per_cluster => $N );
 
 =head1 CHANGES
+
+Version 1.21 includes fixes to handle the possibility that,
+when clustering the data for a fixed number of clusters, a
+cluster may become empty during iterative calculation of
+cluster assignments of the data elements and the updating of
+the cluster centers.  The code changes are in the
+assign_data_to_clusters() and update_cluster_centers()
+subroutines.
 
 Version 1.20 includes an option to normalize the data with
 respect to its variability along the different coordinates
@@ -1734,6 +1819,15 @@ if you have root access.  If not,
     make install
 
 =head1 THANKS
+
+Version 1.21 came about in response to the problems
+encountered by Luis Fernando D'Haro with version 1.20.
+Although the module would yield the clusters for some of its
+runs, more frequently than not the module would abort with
+an "empty cluster" message for his data. Luis Fernando has
+also suggested other improvements (such as clustering
+directly from the contents of a hash) that I intend to make
+in future versions of this module.  Thanks Luis Fernando.
 
 Chad Aeschliman was kind enough to test out the interface of
 this module and to give suggestions for its improvement.  His

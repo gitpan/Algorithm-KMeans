@@ -17,7 +17,7 @@ my $datafile = "mydatafile1.dat";
 
 my $mask = "N111";
 my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
-                                        mask     => "N111",
+                                        mask     => $mask,
                                         K        => 3,
                                         terminal_output => 1,
                                         do_variance_normalization => 1,
