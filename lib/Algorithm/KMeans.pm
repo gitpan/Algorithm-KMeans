@@ -1,7 +1,7 @@
 package Algorithm::KMeans;
 
 #---------------------------------------------------------------------------
-# Copyright (c) 2010 Avinash Kak. All rights reserved.
+# Copyright (c) 2011 Avinash Kak. All rights reserved.
 # This program is free software.  You may modify and/or
 # distribute it under the same terms as Perl itself.
 # This copyright notice must remain attached to the file.
@@ -18,7 +18,7 @@ use File::Basename;
 use Math::Random;
 use Graphics::GnuplotIF;
 
-our $VERSION = '1.21';
+our $VERSION = '1.30';
 
 # from perl docs:
 my $_num_regex =  '^[+-]?\ *(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$'; 
@@ -69,6 +69,7 @@ sub read_data_from_file {
 
     # Transform strings into number data
     foreach my $record (@raw_data) {
+        next unless $record;
         next if $record =~ /^#/;
         my @data_fields;
         my @fields = split /\s+/, $record;
@@ -199,8 +200,8 @@ sub iterate_through_K {
     my $self = shift;
     my @all_data_ids = @{$self->{_data_id_tags}};
     my $N = $self->{_N};
-    croak "You need at least 8 data samples. The number of data points " .
-        "must satisfy the relation N = 2xK**2 where K is the " .
+    croak "You need more than 8 data samples. The number of data points " .
+        "must satisfy the relation N > 2xK**2 where K is the " .
         "number of clusters.  The smallest value for K is 2.\n"
         if $N <= 8;
     my $K_statistical_max = int( sqrt( $N / 2.0 ) );
@@ -233,13 +234,16 @@ sub iterate_through_K {
                 $clusters = deep_copy_AoA( $new_clusters );
                 $cluster_centers = deep_copy_AoA( $new_cluster_centers );
             } 
+            #print "QoC value for trial=$trial and k=$K equals $newQoC\n";
         }
         push @QoC_values, $QoC;
         push @array_of_clusters, $clusters;
         push @array_of_cluster_centers, $cluster_centers;
     }
     my ($min, $max) = minmax( \@QoC_values );
-    croak "Unsuccessful. Try again.\n" if ($max - $min ) < 0.00001;
+    if ($Kmax - $Kmin > 1) {
+        croak "Unsuccessful. Try again.\n" if ($max - $min ) < 0.00001;
+    }
     my $K_best_relative_to_Kmin = get_index_at_value($min, \@QoC_values );
     my $K_best = $K_best_relative_to_Kmin + $Kmin;
 
@@ -595,7 +599,7 @@ sub write_clusters_to_files {
         print "Writing cluster $i to file $filename\n"
                             if $self->{_terminal_output};
         open FILEHANDLE, "| sort > $filename"
-            or die "Unable to pen file: $!";
+            or die "Unable to open file: $!";
         foreach my $ele (@{$clusters[$i-1]}) {        
             print FILEHANDLE "$ele\n";
         }
@@ -1262,7 +1266,7 @@ Algorithm::KMeans - Clustering multi-dimensional data with a pure-Perl implement
 
 
   #  Now construct an instance of the clusterer.  The parameter K controls the number 
-  #  of clusters.  If you know how many clusters you want (in this case 3), call
+  #  of clusters.  If you know how many clusters you want (let's say 3), call
 
   my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
                                           mask     => $mask,
@@ -1370,6 +1374,14 @@ Algorithm::KMeans - Clustering multi-dimensional data with a pure-Perl implement
                           number_data_points_per_cluster => $N );
 
 =head1 CHANGES
+
+Version 1.30 includes a bug fix for the case when the
+datafile contains empty lines, that is, lines with no data
+records.  Another bug fix in Version 1.30 deals with the
+case when you want the module to figure out how many
+clusters to form (this is the K=0 option in the constructor
+call) and the number of data records is close to the
+minimum.
 
 Version 1.21 includes fixes to handle the possibility that,
 when clustering the data for a fixed number of clusters, a
@@ -1820,6 +1832,9 @@ if you have root access.  If not,
 
 =head1 THANKS
 
+Version 1.30 resulted from Martin Kalin reporting problems
+with a very small data set. Thanks Martin!
+
 Version 1.21 came about in response to the problems
 encountered by Luis Fernando D'Haro with version 1.20.
 Although the module would yield the clusters for some of its
@@ -1847,7 +1862,7 @@ subject line to get past my spam filter.
 This library is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.
 
- Copyright 2010 Avinash Kak
+ Copyright 2011 Avinash Kak
 
 =cut
 

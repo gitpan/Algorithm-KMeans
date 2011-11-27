@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Algorithm-KMeans
-version:            1.21
+version:            1.30
 abstract:           A pure-Perl implementation of K-Means Clustering
 author:
     - Avinash Kak (kak@purdue.edu)

@@ -16,7 +16,7 @@ use Algorithm::KMeans;
 # generation.
 
 my $parameter_file = "param.txt";
-my $out_datafile = "mydatafile1.dat";
+my $out_datafile = "mydatafile2.dat";
 
 Algorithm::KMeans->cluster_data_generator( 
                         input_parameter_file => $parameter_file,

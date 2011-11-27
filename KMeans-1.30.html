@@ -60,7 +60,7 @@
   my $mask = &quot;N0111&quot;;</pre>
 <pre>
   #  Now construct an instance of the clusterer.  The parameter K controls the number 
-  #  of clusters.  If you know how many clusters you want (in this case 3), call</pre>
+  #  of clusters.  If you know how many clusters you want (let's say 3), call</pre>
 <pre>
   my $clusterer = Algorithm::KMeans-&gt;new( datafile =&gt; $datafile,
                                           mask     =&gt; $mask,
@@ -166,6 +166,13 @@
 </p>
 <hr />
 <h1><a name="changes">CHANGES</a></h1>
+<p>Version 1.30 includes a bug fix for the case when the
+datafile contains empty lines, that is, lines with no data
+records.  Another bug fix in Version 1.30 deals with the
+case when you want the module to figure out how many
+clusters to form (this is the K=0 option in the constructor
+call) and the number of data records is close to the
+minimum.</p>
 <p>Version 1.21 includes fixes to handle the possibility that,
 when clustering the data for a fixed number of clusters, a
 cluster may become empty during iterative calculation of
@@ -609,6 +616,8 @@ subject line.</p>
 </p>
 <hr />
 <h1><a name="thanks">THANKS</a></h1>
+<p>Version 1.30 resulted from Martin Kalin reporting problems
+with a very small data set. Thanks Martin!</p>
 <p>Version 1.21 came about in response to the problems
 encountered by Luis Fernando D'Haro with version 1.20.
 Although the module would yield the clusters for some of its
@@ -636,7 +645,7 @@ subject line to get past my spam filter.</p>
 <p>This library is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.</p>
 <pre>
- Copyright 2010 Avinash Kak</pre>
+ Copyright 2011 Avinash Kak</pre>
 
 </body>
 
