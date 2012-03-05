@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Algorithm-KMeans
-version:            1.30
+version:            1.40
 abstract:           A pure-Perl implementation of K-Means Clustering
 author:
     - Avinash Kak (kak@purdue.edu)
@@ -12,6 +12,7 @@ build_requires:
     ExtUtils::MakeMaker:  0
 requires:
     Graphics::GnuplotIF:  1.4
+    Math::GSL:            0.26
     Math::Random:         0.71
 no_index:
     directory:

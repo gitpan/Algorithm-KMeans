@@ -20,13 +20,17 @@ module in which it is a C library that is actually doing the
 job of clustering for you, it is more difficult to
 experiment with various aspects of clustering.
 
-This module requires the following two modules:
+This module requires the following three modules:
 
    Math::Random
    Graphics::GnuplotIF
+   Math::GSL
 
-the former for generating the multivariate random numbers
-and the latter for the visualization of the clusters.
+the first for generating the multivariate random numbers,
+the second for the visualization of the clusters, and the
+third for access to the Perl wrappers for the GNU Scientific
+Library.  The last, Math::GSL, is needed for the 'smart'
+option for "cluster_seeding" in the constructor.
 
 For installation, do the usual
 

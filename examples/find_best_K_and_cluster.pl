@@ -6,6 +6,7 @@ use strict;
 use Algorithm::KMeans;
 
 my $datafile = "mydatafile1.dat";
+#my $datafile = "mydatafile2.dat";
 
 # Mask:
 
@@ -21,13 +22,17 @@ my $datafile = "mydatafile1.dat";
 # have to place the character `N' at the right place:
 
 my $mask = "N111";
+#my $mask = "N11";
+
 my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
-                                        mask     => "N111",
+                                        mask     => $mask,
                                         K        => 0,
                                         terminal_output => 1,
-#                                        do_variance_normalization => 1,
-                                        write_clusters_to_files => 1,
-    );
+                                        cluster_seeding => 'random', 
+#                                       do_variance_normalization => 1,
+#                                       write_clusters_to_files => 1,
+                                        debug => 0,
+);
 
 $clusterer->read_data_from_file();
 
@@ -57,5 +62,6 @@ $clusterer->show_QoC_values();
 # original data mask.
 
 my $visualization_mask = "111";
+#my $visualization_mask = "11";
 $clusterer->visualize_clusters($visualization_mask);
 

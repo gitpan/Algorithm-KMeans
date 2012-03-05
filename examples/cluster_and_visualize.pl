@@ -5,7 +5,10 @@
 use strict;
 use Algorithm::KMeans;
 
-my $datafile = "mydatafile1.dat";
+#my $datafile = "mydatafile2.dat";
+my $datafile = "mydatafile3.dat";
+#my $datafile = "mydatafile1.dat";
+#my $datafile = "Nadeem.txt";
 #my $datafile = "features_temp.dat";
 #my $datafile = "fernando.dat";
 
@@ -22,15 +25,18 @@ my $datafile = "mydatafile1.dat";
 # "N011".  The symbolic ID can be in any column --- you just
 # have to place the character `N' at the right place:
 
-my $mask = "N111";       # for mydatafile1.dat --- use all three data cols
-#my $mask = "N011";      # for mydatafile1.dat --- use all only last two cols
-#my $mask = "N100";      # for mydatafile1.dat --- use only the first data col
+my $mask = "N11";       # for mydatafile3.dat
+#my $mask = "N111";     # for mydatafile1.dat --- use all three data cols
+#my $mask = "N011";     # for mydatafile1.dat --- use all only last two cols
+#my $mask = "N100";      # for mydatafile1.dat, Nadeem.txt
 #my $mask = "N10";       # for fernando.dat and features_temp.dat datafiles
 my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
                                         mask     => $mask,
-                                        K        => 3,
+                                        K        => 2,
+                                        cluster_seeding => 'smart',
                                         terminal_output => 1,
 #                                        write_clusters_to_files => 1,
+                                        debug => 0,
     );
 
 $clusterer->read_data_from_file();
@@ -45,6 +51,10 @@ foreach my $cluster (@$clusters) {
     print "Cluster:   @$cluster\n\n"
 }
 
+
+#$clusterer->get_initial_cluster_centers_1_40(3);
+
+
 # VISUALIZATION:
 
 # Visualization mask:
@@ -58,9 +68,10 @@ foreach my $cluster (@$clusters) {
 # visualization must not exceed the number of on bits in the
 # original data mask.
 
-my $visualization_mask = "111";   # for mydatafile1.dat with all 3 data cols
-#my $visualization_mask = "11";   
-#my $visualization_mask = "1";    # for fernando.dat and features_temp.dat
+#my $visualization_mask = "111";   # for mydatafile1.dat with all 3 data cols
+my $visualization_mask = "11";   
+#my $visualization_mask = "1";  #for fernando.dat, features_temp.dat, Nadeem.txt
 
 $clusterer->visualize_clusters($visualization_mask);
+
 

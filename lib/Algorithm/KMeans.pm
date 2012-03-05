@@ -1,7 +1,7 @@
 package Algorithm::KMeans;
 
 #---------------------------------------------------------------------------
-# Copyright (c) 2011 Avinash Kak. All rights reserved.
+# Copyright (c) 2012 Avinash Kak. All rights reserved.
 # This program is free software.  You may modify and/or
 # distribute it under the same terms as Perl itself.
 # This copyright notice must remain attached to the file.
@@ -17,8 +17,9 @@ use Carp;
 use File::Basename;
 use Math::Random;
 use Graphics::GnuplotIF;
+use Math::GSL::Matrix;
 
-our $VERSION = '1.30';
+our $VERSION = '1.40';
 
 # from perl docs:
 my $_num_regex =  '^[+-]?\ *(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$'; 
@@ -39,6 +40,8 @@ sub new {
         _terminal_output  =>   $args{terminal_output} || 0,
         _clusters_2_files =>   $args{write_clusters_to_files} || 0,
         _var_normalize    =>   $args{do_variance_normalization} || 0,
+        _cluster_seeding  =>   $args{cluster_seeding} || 'smart',
+        _debug            =>   $args{debug} || 0,
         _N                =>   0,
         _K_best           =>   'unknown',
         _original_data    =>   {},
@@ -106,6 +109,7 @@ sub read_data_from_file {
                          if ( $self->{_N} < (2 * $self->{_K} ** 2) );
         print "\n\n\n";
     }
+    srand(123456789);
 }
 
 sub kmeans {
@@ -116,7 +120,10 @@ sub kmeans {
                 ($self->{_K_max} ne 'unknown') ) ) {
         $self->iterate_through_K();
     } elsif ( $K =~ /\d+/) {
-        $self->cluster_for_fixed_K_multiple_tries($K);
+        $self->cluster_for_fixed_K_multiple_random_tries($K)
+            if $self->{_cluster_seeding} eq 'random';
+        $self->cluster_for_fixed_K_single_smart_try($K)
+            if $self->{_cluster_seeding} eq 'smart';
     } else {
         croak "Incorrect call syntax used.  See documentation.\n";
     }
@@ -129,7 +136,10 @@ sub kmeans {
     }
 }
 
-sub cluster_for_fixed_K_multiple_tries {
+
+# This is the subroutine to call if you prefer purely random 
+# choices for the initial seeding of the cluster centers.
+sub cluster_for_fixed_K_multiple_random_tries {
     my $self = shift;
     my $K = shift;
     my @all_data_ids = @{$self->{_data_id_tags}};
@@ -167,6 +177,31 @@ sub cluster_for_fixed_K_multiple_tries {
         print "\nQoC value: $QoC\n";
 #       print "QoC values array for different K: " . 
 #               "@{[ map {my $x = sprintf('%.4f', $_); $x} @QoC_values ]}\n";
+    }
+}
+
+# For the smart try, we do initial cluster seeding by
+# subjecting the data to principal components analysis in
+# order to discover the direction of maximum variance in the
+# data space.  Subsequently, we try to find the K largest
+# peaks along this direction.  The coordinates of these
+# peaks serve as the seeds for the K clusters.
+sub cluster_for_fixed_K_single_smart_try {
+    my $self = shift;
+    my $K = shift;
+    my @all_data_ids = @{$self->{_data_id_tags}};
+    print "Clustering for K = $K\n" if $self->{_terminal_output};
+    my ($clusters, $cluster_centers) =
+                              $self->cluster_for_given_K($K);
+    my $QoC = $self->cluster_quality( $clusters, $cluster_centers );
+    $self->{_clusters} = $clusters;
+    $self->{_cluster_centers} = $cluster_centers;  
+    $self->{_QoC_values}->{"$K"} = $QoC; 
+    if ($self->{_terminal_output}) {
+        print "\nDisplaying final clusters for best K (= $K) :\n";
+        display_clusters( $clusters );
+        $self->display_cluster_centers( $clusters );
+        print "\nQoC value: $QoC\n";
     }
 }
 
@@ -224,17 +259,25 @@ sub iterate_through_K {
         my $clusters;
         my $cluster_centers;
         print "Clustering for K = $K\n" if $self->{_terminal_output};
-        foreach my $trial (1..21) {
-            my ($new_clusters, $new_cluster_centers) = 
-                           $self->cluster_for_given_K($K);
-            my $newQoC = $self->cluster_quality( $new_clusters, 
-                                                 $new_cluster_centers );
-            if ( (!defined $QoC) || ($newQoC < $QoC) ) {
-                $QoC = $newQoC;
-                $clusters = deep_copy_AoA( $new_clusters );
-                $cluster_centers = deep_copy_AoA( $new_cluster_centers );
-            } 
-            #print "QoC value for trial=$trial and k=$K equals $newQoC\n";
+        if ($self->{_cluster_seeding} eq 'random') {
+            foreach my $trial (1..21) {
+                my ($new_clusters, $new_cluster_centers) = 
+                               $self->cluster_for_given_K($K);
+                my $newQoC = $self->cluster_quality( $new_clusters, 
+                                                     $new_cluster_centers );
+                if ( (!defined $QoC) || ($newQoC < $QoC) ) {
+                    $QoC = $newQoC;
+                    $clusters = deep_copy_AoA( $new_clusters );
+                    $cluster_centers = deep_copy_AoA( $new_cluster_centers );
+                } 
+                #print "QoC value for trial=$trial and k=$K equals $newQoC\n";
+            }
+        } elsif ($self->{_cluster_seeding} eq 'smart') {
+            ($clusters, $cluster_centers) = $self->cluster_for_given_K($K);
+            $QoC = $self->cluster_quality($clusters,$cluster_centers);
+        } else {
+            die "You must either choose 'smart' for cluster_seeding "
+                . "or 'random'.  Fix your constructor call." 
         }
         push @QoC_values, $QoC;
         push @array_of_clusters, $clusters;
@@ -284,12 +327,16 @@ sub cluster_for_given_K {
     my $self = shift;
     my $K = shift;
     my @all_data_ids = @{$self->{_data_id_tags}};
-    my @cluster_center_indices =  $self->initialize_cluster_centers($K);
-    my $cluster_centers = $self->get_initial_cluster_centers( 
-                                         \@cluster_center_indices );
-
+    my $cluster_centers;
+    if ($self->{_cluster_seeding} eq 'smart') {
+        $cluster_centers = $self->get_initial_cluster_centers_1_40($K);
+    } elsif ($self->{_cluster_seeding} eq 'random') {
+        $cluster_centers = $self->get_initial_cluster_centers($K);
+    } else {
+        die "You must either choose 'smart' for cluster_seeding "
+          . "or 'random'.  Fix your constructor call." 
+    }
     my $clusters = $self->assign_data_to_clusters_initial($cluster_centers);  
-
     my $cluster_nonexistant_flag = 0;
     foreach my $trial (0..2) {
         ($clusters, $cluster_centers) =
@@ -304,19 +351,20 @@ sub cluster_for_given_K {
     return ($clusters, $cluster_centers);
 }
 
-# Returns a set of K random integers.  These serve as
-# indices to reach into the data array.  A data element
-# whose index is one of the random numbers returned by this
-# routine serves as an initial cluster center.  Note the
-# quality check it runs on the list of K random integers
-# constructed.  We first make sure that all K random
-# integers are different.  Subsequently, we carry out a
-# quality assessment of the K random integers constructed.
-# This quality measure consists of the ratio of the values
-# spanned by the random integers to the value of N, the
-# total number of data points to be clustered.  Currently,
-# if this ratio is less than 0.3, we discard the K integers
-# and try again.
+# This function is used when you set the "cluster_seeding"
+# option to 'random' in the constructor.  Returns a set of K
+# random integers.  These serve as indices to reach into the
+# data array.  A data element whose index is one of the
+# random numbers returned by this routine serves as an
+# initial cluster center.  Note the quality check it runs on
+# the list of K random integers constructed.  We first make
+# sure that all K random integers are different.
+# Subsequently, we carry out a quality assessment of the K
+# random integers constructed.  This quality measure
+# consists of the ratio of the values spanned by the random
+# integers to the value of N, the total number of data
+# points to be clustered.  Currently, if this ratio is less
+# than 0.3, we discard the K integers and try again.
 sub initialize_cluster_centers {
     my $self = shift;
     my $K = shift;
@@ -341,20 +389,207 @@ sub initialize_cluster_centers {
     return @cluster_center_indices;
 }
 
-# This routine merely reaches into the data array with the
-# random integers, as constructed by the previous routine,
-# serving as indices and fetching values corresponding to
-# those indices.  The fetched data samples serve as the
-# initial cluster centers.
+# This function is used when you set the "cluster_seeding"
+# option to 'random' in the constructor.  This routine
+# merely reaches into the data array with the random
+# integers, as constructed by the previous routine, serving
+# as indices and fetching values corresponding to those
+# indices.  The fetched data samples serve as the initial
+# cluster centers.
 sub get_initial_cluster_centers {
     my $self = shift;
-    my @cluster_center_indices = @{shift @_};
+    my $K = shift;
+    my @cluster_center_indices = $self->initialize_cluster_centers($K);
     my @result;
     foreach my $i (@cluster_center_indices) {    
         my $tag = $self->{_data_id_tags}[$i];     
         push @result, $self->{_data}->{$tag};
     }
     return \@result;
+}
+
+# This method is invoked when you choose the 'smart' option
+# for the "cluster_seeding" option in the constructor.  It
+# subjects the data to a principal components analysis to
+# figure out the direction of maximal variance.
+# Subsequently, it tries to locate K peaks in a smoothed
+# histogram of the data points projected onto the maximal
+# variance direction.
+sub get_initial_cluster_centers_1_40 {
+    my $self = shift;
+    my $K = shift;
+    if ($self->{_data_dimensions} == 1) {
+        my @one_d_data;
+        foreach my $j (0..$self->{_N}-1) {
+            my $tag = $self->{_data_id_tags}[$j];     
+            push @one_d_data, $self->{_data}->{$tag}->[0];
+        }
+        my @peak_points = 
+                    find_peak_points_in_given_direction(\@one_d_data,$K);
+        print "highest points at data values: @peak_points\n" 
+                                                         if $self->{_debug};
+        my @cluster_centers;
+        foreach my $peakpoint (@peak_points) {
+            push @cluster_centers, [$peakpoint];
+        }
+        return \@cluster_centers;
+    }
+    my ($num_rows,$num_cols) = ($self->{_data_dimensions},$self->{_N});
+    my $matrix = Math::GSL::Matrix->new($num_rows,$num_cols);
+    my $mean_vec = Math::GSL::Matrix->new($num_rows,1);
+    # All the record labels are stored in the array $self->{_data_id_tags}.
+    # The actual data for clustering is stored in a hash at $self->{_data}
+    # whose keys are the record labels; the value associated with each
+    # key is the array holding the corresponding numerical multidimensional
+    # data.
+    foreach my $j (0..$num_cols-1) {
+        my $tag = $self->{_data_id_tags}[$j];     
+        my $data = $self->{_data}->{$tag};
+        $matrix->set_col($j, $data);
+    }
+    if ($self->{_debug}) {
+        print "\nDisplaying the original data as a matrix:";
+        display_matrix( $matrix ); 
+    }
+    foreach my $j (0..$num_cols-1) {
+        $mean_vec += $matrix->col($j);
+    }
+    $mean_vec *=  1.0 / $num_cols;
+    if ($self->{_debug}) {
+        print "Displaying the mean vector for the data:";
+        display_matrix( $mean_vec );
+    }
+    foreach my $j (0..$num_cols-1) {
+        my @new_col = ($matrix->col($j) - $mean_vec)->as_list;
+        $matrix->set_col($j, \@new_col);
+    }
+    if ($self->{_debug}) {
+        print "Displaying mean subtracted data as a matrix:";
+        display_matrix( $matrix ); 
+    }
+    my $transposed = transpose( $matrix );
+    if ($self->{_debug}) {
+        print "Displaying transposed data matrix:";
+        display_matrix( $transposed );
+    }
+    my $covariance = matrix_multiply( $matrix, $transposed );
+    $covariance *= 1.0 / $num_cols;
+    if ($self->{_debug}) {
+        print "\nDisplaying the Covariance Matrix for your data:";
+        display_matrix( $covariance );
+    }
+    my ($eigenvalues, $eigenvectors) = $covariance->eigenpair;
+    my $num_of_eigens = @$eigenvalues;     
+    my $largest_eigen_index = 0;
+    my $smallest_eigen_index = 0;
+    print "Eigenvalue 0:   $eigenvalues->[0]\n" if $self->{_debug};
+    foreach my $i (1..$num_of_eigens-1) {
+        $largest_eigen_index = $i if $eigenvalues->[$i] > 
+                                     $eigenvalues->[$largest_eigen_index];
+        $smallest_eigen_index = $i if $eigenvalues->[$i] < 
+                                     $eigenvalues->[$smallest_eigen_index];
+        print "Eigenvalue $i:   $eigenvalues->[$i]\n" if $self->{_debug};
+    }
+    print "\nlargest eigen index: $largest_eigen_index\n" if $self->{_debug};
+    print "\nsmallest eigen index: $smallest_eigen_index\n\n" 
+                                                          if $self->{_debug};
+    print "ATTENTION: Intrinsic dimensionality of your data is less than " .
+          "what is apparent from your data file.  You might get " .
+          "better clustering results after some data conditioning.\n"
+                if ($eigenvalues->[$smallest_eigen_index] <
+                    $eigenvalues->[$largest_eigen_index] ) * 0.001;
+    foreach my $i (0..$num_of_eigens-1) {
+        my @vec = $eigenvectors->[$i]->as_list;
+        print "Eigenvector $i:   @vec\n" if $self->{_debug};
+    }
+    my @largest_eigen_vec = $eigenvectors->[$largest_eigen_index]->as_list;
+    print "\nLargest eigenvector:   @largest_eigen_vec\n" if $self->{_debug};
+    my @max_var_direction;
+    # Each element of the array @largest_eigen_vec is a Math::Complex object
+    foreach my $k (0..@largest_eigen_vec-1) {
+        my ($mag, $theta) = $largest_eigen_vec[$k] =~ /\[(\d*\.\d+),(\S+)\]/;
+        if ($theta eq '0') {
+            $max_var_direction[$k] = $mag;
+        } elsif ($theta eq 'pi') {
+            $max_var_direction[$k] = -1.0 * $mag;
+        } else {
+            die "eigendecomposition of covariance matrix produced a complex eigenvector --- something is wrong";
+        }
+    }
+    # "Maximum variance direction: @max_var_direction
+    print "\nMaximum Variance Direction: @max_var_direction\n\n" 
+                                                 if $self->{_debug};
+    # We now project all data points on the largest eigenvector.
+    # Each projection will yield a single point on the eigenvector.
+    my @projections;
+    foreach my $j (0..$self->{_N}-1) {
+        my $tag = $self->{_data_id_tags}[$j];     
+        my $data = $self->{_data}->{$tag};
+        die "Dimensionality of the largest eigenvector does not "
+            . "match the dimensionality of the data" 
+          unless @max_var_direction == $self->{_data_dimensions};
+        my $projection = vector_multiply($data, \@max_var_direction);
+        push @projections, $projection;
+    }
+    print "All projection points: @projections\n" if $self->{_debug};
+    my @peak_points = find_peak_points_in_given_direction(\@projections, $K);
+    print "highest points at points along largest eigenvec: @peak_points\n"
+                                              if $self->{_debug};
+    my @cluster_centers;
+    foreach my $peakpoint (@peak_points) {
+        my @actual_peak_coords = map {$peakpoint * $_} @max_var_direction;
+        push @cluster_centers, \@actual_peak_coords;
+    }
+    return \@cluster_centers;
+}
+
+# This method is invoked when you choose the 'smart' option
+# for the "cluster_seeding" option in the constructor.  It
+# is called by the previous method locate K peaks in a
+# smoothed histogram of the data points projected onto the
+# maximal variance direction.
+sub find_peak_points_in_given_direction {
+    my $dataref = shift;
+    my $how_many = shift;
+    my @data = @$dataref;
+    my ($min, $max) = minmax(\@data);
+    my $num_points = @data;
+    my @sorted_data = sort {$a <=> $b} @data;
+    #print "\n\nSorted data: @sorted_data\n";
+    my $scale = $max - $min;
+    foreach my $index (0..$#sorted_data-1) {
+        $sorted_data[$index] = ($sorted_data[$index] - $min) / $scale;
+    }
+    my $avg_diff = 0;
+    foreach my $index (0..$#sorted_data-1) {
+        my $diff = $sorted_data[$index+1] - $sorted_data[$index];
+        $avg_diff += ($diff - $avg_diff) / ($index + 1);
+    }
+    my $delta = 1.0 / 1000.0;
+    #    It would be nice to set the delta adaptively, but I must
+    #    change the number of cells in the next foreach loop accordingly
+    #    my $delta = $avg_diff / 20;
+    my @accumulator = (0) x 1000;
+    foreach my $index (0..@sorted_data-1) {
+        my $cell_index = int($sorted_data[$index] / $delta);
+        my $smoothness = 40;
+        for my $index ($cell_index-$smoothness..$cell_index+$smoothness) {
+            next if $index < 0 || $index > 999;
+            $accumulator[$index]++;
+        }
+    }
+    my $peaks_array = non_maximum_supression( \@accumulator );
+    my $peaks_index_hash = get_value_index_hash( $peaks_array );
+    my @K_highest_peak_locations;
+    my $k = 0;
+    foreach my $peak (sort {$b <=> $a} keys %$peaks_index_hash) {
+        my $unscaled_peak_point = 
+                  $min + $peaks_index_hash->{$peak} * $scale * $delta;
+        push @K_highest_peak_locations, $unscaled_peak_point
+            if $k < $how_many;
+        last if ++$k == $how_many;
+    }
+    return @K_highest_peak_locations;
 }
 
 # The purpose of this routine is to form initial clusters by
@@ -915,7 +1150,7 @@ sub cluster_data_generator {
         chomp @all_params;
         $param_string = join ' ', @all_params;
     } else {
-        # Just for testing. Unsed in t/test.t
+        # Just for testing. Used in t/test.t
         $param_string = "cluster 5 0 0  1 0 0 0 1 0 0 0 1 " .
                         "cluster 0 5 0  1 0 0 0 1 0 0 0 1 " .
                         "cluster 0 0 5  1 0 0 0 1 0 0 0 1";
@@ -1224,6 +1459,8 @@ sub check_for_illegal_params {
                             terminal_output
                             write_clusters_to_files
                             do_variance_normalization
+                            cluster_seeding
+                            debug
                           /;
     my $found_match_flag;
     foreach my $param (@params) {
@@ -1239,6 +1476,122 @@ sub check_for_illegal_params {
     }
     return $found_match_flag;
 }
+
+sub get_value_index_hash {
+    my $arr = shift;
+    my %hash;
+    foreach my $index (0..@$arr-1) {
+        $hash{$arr->[$index]} = $index if $arr->[$index] > 0;
+    }
+    return \%hash;
+}
+
+sub non_maximum_supression {
+    my $arr = shift;
+    my @output = (0) x @$arr;
+    my @final_output = (0) x @$arr;
+    my %hash;
+    my @array_of_runs = ([$arr->[0]]);
+    foreach my $index (1..@$arr-1) {
+        if ($arr->[$index] == $arr->[$index-1]) {
+            push @{$array_of_runs[-1]}, $arr->[$index];
+        } else {  
+            push @array_of_runs, [$arr->[$index]];
+        }
+    }
+    my $runstart_index = 0;
+    foreach my $run_index (1..@array_of_runs-2) {
+        $runstart_index += @{$array_of_runs[$run_index-1]};
+        if ($array_of_runs[$run_index]->[0] > 
+            $array_of_runs[$run_index-1]->[0]  &&
+            $array_of_runs[$run_index]->[0] > 
+            $array_of_runs[$run_index+1]->[0]) {
+            my $run_center = @{$array_of_runs[$run_index]} / 2;
+            my $assignment_index = $runstart_index + $run_center;
+            $output[$assignment_index] = $arr->[$assignment_index];
+        }
+    }
+    if ($array_of_runs[-1]->[0] > $array_of_runs[-2]->[0]) {
+        $runstart_index += @{$array_of_runs[-2]};
+        my $run_center = @{$array_of_runs[-1]} / 2;
+        my $assignment_index = $runstart_index + $run_center;
+        $output[$assignment_index] = $arr->[$assignment_index];
+    }
+    if ($array_of_runs[0]->[0] > $array_of_runs[1]->[0]) {
+        my $run_center = @{$array_of_runs[0]} / 2;
+        $output[$run_center] = $arr->[$run_center];
+    }
+    #print "\n\nAfter non-max suppression: @output\n";
+    return \@output;
+}
+
+sub display_matrix {
+    my $matrix = shift;
+    my $nrows = $matrix->rows();
+    my $ncols = $matrix->cols();
+    print "\n\nDisplaying matrix of size $nrows rows and $ncols columns:\n";
+    foreach my $i (0..$nrows-1) {
+        my $row = $matrix->row($i);
+        my @row_as_list = $row->as_list;
+        print "@row_as_list\n";
+    }
+    print "\n\n";
+}
+
+sub transpose {
+    my $matrix = shift;
+    my $num_rows = $matrix->rows();
+    my $num_cols = $matrix->cols();
+    my $transpose = Math::GSL::Matrix->new($num_cols, $num_rows);
+    foreach my $i (0..$num_rows-1) {
+        my @row = $matrix->row($i)->as_list;
+        $transpose->set_col($i, \@row );
+    }
+    return $transpose;
+}
+
+sub vector_multiply {
+    my $vec1 = shift;
+    my $vec2 = shift;
+    die "vec_multiply called with two vectors of different sizes"
+        unless @$vec1 == @$vec2;
+    my $result = 0;
+    foreach my $i (0..@$vec1-1) {
+        $result += $vec1->[$i] * $vec2->[$i];
+    }
+    return $result;
+}
+
+sub matrix_multiply {
+    my $matrix1 = shift;
+    my $matrix2 = shift;
+    my ($nrows1, $ncols1) = ($matrix1->rows(), $matrix1->cols());
+    my ($nrows2, $ncols2) = ($matrix2->rows(), $matrix2->cols());
+    die "matrix multiplication called with non-matching matrix arguments"
+        unless $nrows1 == $ncols2 && $ncols1 == $nrows2;
+    if ($nrows1 == 1) {
+        my @row = $matrix1->row(0)->as_list;
+        my @col = $matrix2->col(0)->as_list;
+        my $result;
+        foreach my $j (0..$ncols1-1) {
+            $result += $row[$j] * $col[$j];
+        }
+        return $result;
+    }
+    my $product = Math::GSL::Matrix->new($nrows1, $nrows1);
+    foreach my $i (0..$nrows1-1) {
+        my $row = $matrix1->row($i);
+        my @product_row;
+        foreach my $j (0..$ncols2-1) {
+            my $col = $matrix2->col($j);
+            my $row_times_col = matrix_multiply($row, $col);
+            push @product_row, $row_times_col;
+        }
+        $product->set_row($i, \@product_row);
+    }
+    return $product;
+}
+
 
 1;
 
@@ -1257,10 +1610,10 @@ Algorithm::KMeans - Clustering multi-dimensional data with a pure-Perl implement
   my $datafile = "mydatafile.dat";
 
 
-  #  Next, set the mask to indicate which columns of the datafile to use for clustering and
-  #  which column contains a symbolic ID for each data record. For example, if the symbolic 
-  #  name is in the first column, if you want the second column to be ignored and 
-  #  you want the next three columns to be used for 3D clustering:
+  #  Next, set the mask to indicate which columns of the datafile to use for 
+  #  clustering and which column contains a symbolic ID for each data record. For
+  #  example, if the symbolic name is in the first column, you want the second column
+  #  to be ignored, and you want the next three columns to be used for 3D clustering:
 
   my $mask = "N0111";
 
@@ -1268,11 +1621,21 @@ Algorithm::KMeans - Clustering multi-dimensional data with a pure-Perl implement
   #  Now construct an instance of the clusterer.  The parameter K controls the number 
   #  of clusters.  If you know how many clusters you want (let's say 3), call
 
-  my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
-                                          mask     => $mask,
-                                          K        => 3,
+  my $clusterer = Algorithm::KMeans->new( datafile        => $datafile,
+                                          mask            => $mask,
+                                          K               => 3,
+                                          cluster_seeding => 'smart',
                                           terminal_output => 1,
+                                          debug           => 0,
                                         );
+ 
+  #  Note the choice for cluster_seeding. The choice 'smart' means that the clusterer
+  #  will (1) subject the data to principal components analysis to determine the maximum
+  #  variance direction; (2) project the data onto this direction; (3) find peaks in
+  #  a smoothed histogram of the projected points; and (4) use the locations of
+  #  the highest peaks as seeds for cluster centers.  The other value for the
+  #  "cluster_seeding" option is 'random'.  If the 'smart' option produces bizarre
+  #  results, try 'random'.  The default is 'smart'.
 
   #  If you believe that the individual clusters in your data are not isotropic 
   #  (that is, you believe the variances within each cluster are significantly different 
@@ -1375,20 +1738,32 @@ Algorithm::KMeans - Clustering multi-dimensional data with a pure-Perl implement
 
 =head1 CHANGES
 
+Version 1.40 includes a C<smart> option for seeding the
+clusters.  This option, supplied through the constructor
+parameter C<cluster_seeding>, means that the clusterer will
+(1) Subject the data to principal components analysis in
+order to determine the maximum variance direction; (2)
+Project the data onto this direction; (3) Find peaks in a
+smoothed histogram of the projected points; and (4) Use the
+locations of the highest peaks as initial guesses for the
+cluster centers.  If you don't want to use this option, set
+C<cluster_seeding> to C<random>. That should work as in the
+previous version of the module.
+
 Version 1.30 includes a bug fix for the case when the
 datafile contains empty lines, that is, lines with no data
 records.  Another bug fix in Version 1.30 deals with the
 case when you want the module to figure out how many
-clusters to form (this is the K=0 option in the constructor
-call) and the number of data records is close to the
-minimum.
+clusters to form (this is the C<K=0> option in the
+constructor call) and the number of data records is close to
+the minimum.
 
 Version 1.21 includes fixes to handle the possibility that,
 when clustering the data for a fixed number of clusters, a
 cluster may become empty during iterative calculation of
 cluster assignments of the data elements and the updating of
 the cluster centers.  The code changes are in the
-assign_data_to_clusters() and update_cluster_centers()
+C<assign_data_to_clusters()> and C<update_cluster_centers()>
 subroutines.
 
 Version 1.20 includes an option to normalize the data with
@@ -1411,10 +1786,10 @@ look like regular floating-point numbers to Perl, and
 multi-part version numbers like 1.1.1 (which Perl interprets
 as 1.001001).
 
-Version 1.1.1 allows for range limiting the values of K to
-search through.  K stands for the number of clusters to
-form.  This version also declares the module dependencies in
-the Makefile.PL file.
+Version 1.1.1 allows for range limiting the values of C<K>
+to search through.  C<K> stands for the number of clusters
+to form.  This version also declares the module dependencies
+in the C<Makefile.PL> file.
 
 Version 1.1 is a an object-oriented version of the
 implementation presented in version 1.0.  The current
@@ -1450,7 +1825,7 @@ results you obtain with a K-Means clusterer may be improved
 --- but only under certain circumstances --- by first
 normalizing the data appropriately, as can done with the
 implementation shown here when you set the
-I<do_variance_normalization> option in the KMeans
+C<do_variance_normalization> option in the KMeans
 constructor.  But, as pointed out elsewhere in this
 documentation, such normalization may actually decrease the
 performance of the clusterer if the overall data variability
@@ -1478,14 +1853,19 @@ Obviously, before the two-step approach can proceed, we need
 to initialize the both the cluster center values and the
 clusters that can then be iteratively modified by the
 two-step algorithm.  How this initialization is carried out
-is very important.  The implementation here uses a random
-number generator to find K random integers between 0 and N
-where N is the total number of data samples that need to be
-clustered and K the number of clusters you wish to form.
-The K random integers are used as indices for the data
-samples in the overall data array --- the data samples thus
-selected are treated as seed cluster centers.  This
-obviously requires a prior knowledge of K.
+is very important.  Starting with Version 1.40, you now have
+two very different ways for carrying out this
+initialization.  The default option, called the C<smart>
+option, consists of subjecting the data to principal
+components analysis to discover the direction of maximum
+variance in the data space.  The data points are then
+projected on to this direction and a histogram constructed
+from the projections.  Centers of the smoothed histogram are
+used to seed the clustering operation.  The other option,
+which is the older option, is to choose the cluster centers
+purely randomly.  You get the first option if you set
+C<cluster_seeding> to C<smart> in the constructor, and you get
+the second option if you set it to C<random>.
 
 How to specify K is one of the most vexing issues in any
 approach to clustering.  In some case, we can set K on the
@@ -1518,9 +1898,11 @@ assignment step.
 Ordinarily, the output produced by a K-Means clusterer will
 correspond to a local minimum for the QoC values, as opposed
 to a global minimum.  The current implementation protects
-against that, but only in a very small way, by trying
-different randomly selected initial cluster centers and then
-selecting the one that gives the best overall QoC value.
+against that when the clusterer constructor is called with
+the C<random> option for C<cluster_seeding>, but only in a
+very small way, by trying different randomly selected
+initial cluster centers and then selecting the one that
+gives the best overall QoC value.
 
 =head1 METHODS
 
@@ -1532,18 +1914,26 @@ the generation of data for testing a clustering algorithm:
 
 =item B<new()>
 
-    my $clusterer = Algorithm::KMeans->new(datafile => $datafile,
-                                           mask     => $mask,
-                                           K        => $K,
+    my $clusterer = Algorithm::KMeans->new(datafile        => $datafile,
+                                           mask            => $mask,
+                                           K               => $K,
+                                           cluster_seeding => 'smart',
                                            terminal_output => 1,     
                                            write_clusters_to_files => 1,
+                                           debug           => 0,
                                           );
 
-A call to new() constructs a new instance of the
-Algorithm::KMeans class.  When $K is a non-zero positive
-integer, the module will construct exactly that many
-clusters.  However, when $K is 0, the module will find the
-best number of clusters to partition the data into.
+A call to C<new()> constructs a new instance of the
+C<Algorithm::KMeans> class.  When C<$K> is a non-zero
+positive integer, the module will construct exactly that
+many clusters.  However, when C<$K> is 0, the module will
+find the best number of clusters to partition the data into.
+As explained in the Description, setting C<cluster_seeding> to
+C<smart> causes PCA (principal components analysis) to be
+used for discovering the best choices for the initial
+cluster centers.  If you want purely random decisions to be
+made for the initial choices for the cluster centers, set
+C<cluster_seeding> to C<random>.
 
 The data file is expected to contain entries in the
 following format
@@ -1560,14 +1950,14 @@ information.  As to which columns are actually used for
 clustering is decided by the string value of the mask.  For
 example, if we wanted to cluster on the basis of the entries
 in just the 3rd, the 4th, and the 5th columns above, the
-mask value would be `N0111' where the character `N'
+mask value would be C<N0111> where the character C<N>
 indicates that the ID tag is in the first column, the
-character '0' that the second column is to be ignored, and
-the '1's that follow that the 3rd, the 4th, and the 5th
+character C<0> that the second column is to be ignored, and
+the C<1>'s that follow that the 3rd, the 4th, and the 5th
 columns are to be used for clustering.
 
-The parameter I<terminal_output> is boolean; when not
-supplied in the call to new() it defaults to 0.  When set,
+The parameter C<terminal_output> is boolean; when not
+supplied in the call to C<new()> it defaults to 0.  When set,
 this parameter determines what you will see on the terminal
 screen of the window in which you make these method calls.
 When set to 1, you will see on the terminal screen the
@@ -1575,8 +1965,8 @@ different clusters as lists of the symbolic IDs and their
 cluster centers. You will also see the QoC (Quality of
 Clustering) value for the clusters displayed.
 
-The parameter I<write_clusters_to_files> is boolean; when
-not supplied in the call to new(), it defaults to 0.  When
+The parameter C<write_clusters_to_files> is boolean; when
+not supplied in the call to C<new()>, it defaults to 0.  When
 set to 1, the clusters are written out to files named
 
      Cluster0.dat 
@@ -1590,19 +1980,23 @@ destroys all files with such names in the directory in which
 you call the module.
 
 If you wish for the clusterer to search through a
-I<(Kmin,Kmax)> range of values for K, the constructor should
-be called in the following fashion:
+C<(Kmin,Kmax)> range of values for C<K>, the constructor
+should be called in the following fashion:
 
     my $clusterer = Algorithm::KMeans->new(datafile => $datafile,
                                            mask     => $mask,
                                            Kmin     => 3,
                                            Kmax     => 10,
+                                           cluster_seeding => 'smart',
                                            terminal_output => 1,     
+                                           debug    => 0,
                                           );
 
 where obviously you can choose any reasonable values for
-Kmin and Kmax.  If you choose a value for Kmax that is
-statistically too large, the module will let you know.
+C<Kmin> and C<Kmax>.  If you choose a value for C<Kmax> that
+is statistically too large, the module will let you
+know. Again, you may choose C<random> for
+C<cluster_seeding>, the default value being C<smart>.
 
 If you believe that the individual clusters in your data are
 very anisotropic (that is, you believe that intra-cluster
@@ -1619,7 +2013,7 @@ you if the data variability along a dimension is more a
 result of the separation between the means than a
 consequence of the intra-cluster variability.)  You can turn
 on the data normalization by turning on the
-I<do_variance_normalization> option in the constructor, as
+C<do_variance_normalization> option in the constructor, as
 in
 
     my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
@@ -1649,22 +2043,22 @@ centers.
 
     $clusterer->get_K_best();
 
-This call makes sense only if you supply either the K=0
+This call makes sense only if you supply either the C<K=0>
 option to the constructor, or you specify values for the
-Kmin and Kmax options. The K=0 and the (Kmin,Kmax) options
-cause the KMeans algorithm to figure out on its own the best
-value for K.  Remember, K is the number of clusters the data
-is partitioned into.
+C<Kmin> and C<Kmax> options. The C<K=0> and the
+C<(Kmin,Kmax)> options cause the KMeans algorithm to figure
+out on its own the best value for C<K>.  Remember, C<K> is the
+number of clusters the data is partitioned into.
 
 =item B<show_QoC_values()>
 
     $clusterer->show_QoC_values();
 
-presents a table with K values in the left column and the
+presents a table with C<K> values in the left column and the
 corresponding QoC (Quality-of-Clustering) values in the
 right column.  Note that this call makes sense only if you
-either supply the K=0 option to the constructor, or you
-specify values for the I<Kmin> and I<Kmax> options.
+either supply the C<K=0> option to the constructor, or you
+specify values for the C<Kmin> and C<Kmax> options.
 
 =item B<visualize_clusters()>
 
@@ -1682,14 +2076,14 @@ two- or three-dimensional subspaces of the original space.
     $clusterer->visualize_data($visualization_mask, 'normed');
 
 This method requires a second argument and, as shown, it
-must be either the string 'original' or the string 'normed',
-the former for the visualization of the raw data and the
-latter for the visualization of the data after its different
-dimensions are normalized by the standard-deviations along
-those directions.  If you call the method with the second
-argument set to 'normed', but do so without turning on the
-I<do_variance_normalization> option in the KMeans
-constructor, it will let you know.
+must be either the string C<original> or the string
+C<normed>, the former for the visualization of the raw
+data and the latter for the visualization of the data after
+its different dimensions are normalized by the
+standard-deviations along those directions.  If you call the
+method with the second argument set to C<normed>, but do
+so without turning on the C<do_variance_normalization>
+option in the KMeans constructor, it will let you know.
 
 =item  B<cluster_data_generator()>
 
@@ -1702,29 +2096,29 @@ for generating multivariate data for clustering if you wish
 to play with synthetic data for clustering.  The input
 parameter file contains the means and the variances for the
 different Gaussians you wish to use for the synthetic data.
-See the file param.txt provided in the examples directory.
-It will be easiest for you to just edit this file for your
-data generation needs.  In addition to the format of the
-parameter file, the main constraint you need to observe in
-specifying the parameters is that the dimensionality of the
-covariance matrix must correspond to the dimensionality of
-the mean vectors.  The multivariate random numbers are
-generated by calling the Math::Random module.  As you would
-expect, this module requires that the covariance matrices
-you specify in your parameter file be symmetric and positive
-definite.  Should the covariances in your parameter file not
-obey this condition, the Math::Random module will let you
-know.
+See the file C<param.txt> provided in the examples
+directory.  It will be easiest for you to just edit this
+file for your data generation needs.  In addition to the
+format of the parameter file, the main constraint you need
+to observe in specifying the parameters is that the
+dimensionality of the covariance matrix must correspond to
+the dimensionality of the mean vectors.  The multivariate
+random numbers are generated by calling the C<Math::Random>
+module.  As you would expect, this module requires that the
+covariance matrices you specify in your parameter file be
+symmetric and positive definite.  Should the covariances in
+your parameter file not obey this condition, the
+C<Math::Random> module will let you know.
 
 =back
 
 =head1 HOW ARE THE CLUSTERS OUTPUT?
 
-When the option I<terminal_output> is set in the call to the
+When the option C<terminal_output> is set in the call to the
 constructor, the clusters are displayed on the terminal
 screen.
 
-When the option I<write_clusters_to_files> is set in the
+When the option C<write_clusters_to_files> is set in the
 call to the constructor, the module dumps the clusters in
 files named
 
@@ -1743,13 +2137,18 @@ that cluster.
 
 =head1 REQUIRED
 
-This module requires the following two modules:
+This module requires the following three modules:
 
    Math::Random
    Graphics::GnuplotIF
+   Math::GSL
 
-the former for generating the multivariate random numbers
-and the latter for the visualization of the clusters.
+the first for generating the multivariate random numbers,
+the second for the visualization of the clusters, and the
+last for access to the Perl wrappers for the GNU Scientific
+Library.  The C<Matrix> module of this library is used for
+the PCA of the data when clustering is done with the
+C<smart> mode for cluster seeding.
 
 =head1 EXAMPLES
 
@@ -1832,6 +2231,22 @@ if you have root access.  If not,
 
 =head1 THANKS
 
+It was an email from Nadeem Bulsara that prompted me to
+create Version 1.40 of this module.  Working with Version
+1.30, Nadeem noticed that occasionally the module would
+produce variable clustering results on the same dataset.  I
+believe that this variability was caused (at least partly)
+by the purely random mode that was used in Version 1.30 for
+the seeding of the cluster centers.  Version 1.40 now
+includes a C<smart> mode. With the new mode the clusterer
+uses a PCA (Principal Components Analysis) of the data to
+make good guesses for the cluster centers.  However,
+depending on how the data is jumbled up, it is possible that
+the new mode will not produce uniformly good results in all
+cases.  So you can still use the old mode by setting
+C<cluster_seeding> to C<random> in the constructor.
+Thanks Nadeem for your feedback!
+
 Version 1.30 resulted from Martin Kalin reporting problems
 with a very small data set. Thanks Martin!
 
@@ -1862,7 +2277,7 @@ subject line to get past my spam filter.
 This library is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.
 
- Copyright 2011 Avinash Kak
+ Copyright 2012 Avinash Kak
 
 =cut
 

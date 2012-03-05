@@ -52,21 +52,31 @@
 <pre>
   my $datafile = &quot;mydatafile.dat&quot;;</pre>
 <pre>
-  #  Next, set the mask to indicate which columns of the datafile to use for clustering and
-  #  which column contains a symbolic ID for each data record. For example, if the symbolic 
-  #  name is in the first column, if you want the second column to be ignored and 
-  #  you want the next three columns to be used for 3D clustering:</pre>
+  #  Next, set the mask to indicate which columns of the datafile to use for 
+  #  clustering and which column contains a symbolic ID for each data record. For
+  #  example, if the symbolic name is in the first column, you want the second column
+  #  to be ignored, and you want the next three columns to be used for 3D clustering:</pre>
 <pre>
   my $mask = &quot;N0111&quot;;</pre>
 <pre>
   #  Now construct an instance of the clusterer.  The parameter K controls the number 
   #  of clusters.  If you know how many clusters you want (let's say 3), call</pre>
 <pre>
-  my $clusterer = Algorithm::KMeans-&gt;new( datafile =&gt; $datafile,
-                                          mask     =&gt; $mask,
-                                          K        =&gt; 3,
+  my $clusterer = Algorithm::KMeans-&gt;new( datafile        =&gt; $datafile,
+                                          mask            =&gt; $mask,
+                                          K               =&gt; 3,
+                                          cluster_seeding =&gt; 'smart',
                                           terminal_output =&gt; 1,
-                                        );</pre>
+                                          debug           =&gt; 0,
+                                        );
+ 
+  #  Note the choice for cluster_seeding. The choice 'smart' means that the clusterer
+  #  will (1) subject the data to principal components analysis to determine the maximum
+  #  variance direction; (2) project the data onto this direction; (3) find peaks in
+  #  a smoothed histogram of the projected points; and (4) use the locations of
+  #  the highest peaks as seeds for cluster centers.  The other value for the
+  #  &quot;cluster_seeding&quot; option is 'random'.  If the 'smart' option produces bizarre
+  #  results, try 'random'.  The default is 'smart'.</pre>
 <pre>
   #  If you believe that the individual clusters in your data are not isotropic 
   #  (that is, you believe the variances within each cluster are significantly different 
@@ -166,13 +176,24 @@
 </p>
 <hr />
 <h1><a name="changes">CHANGES</a></h1>
+<p>Version 1.40 includes a <code>smart</code> option for seeding the
+clusters.  This option, supplied through the constructor
+parameter <code>cluster_seeding</code>, means that the clusterer will
+(1) Subject the data to principal components analysis in
+order to determine the maximum variance direction; (2)
+Project the data onto this direction; (3) Find peaks in a
+smoothed histogram of the projected points; and (4) Use the
+locations of the highest peaks as initial guesses for the
+cluster centers.  If you don't want to use this option, set
+<code>cluster_seeding</code> to <code>random</code>. That should work as in the
+previous version of the module.</p>
 <p>Version 1.30 includes a bug fix for the case when the
 datafile contains empty lines, that is, lines with no data
 records.  Another bug fix in Version 1.30 deals with the
 case when you want the module to figure out how many
-clusters to form (this is the K=0 option in the constructor
-call) and the number of data records is close to the
-minimum.</p>
+clusters to form (this is the <code>K=0</code> option in the
+constructor call) and the number of data records is close to
+the minimum.</p>
 <p>Version 1.21 includes fixes to handle the possibility that,
 when clustering the data for a fixed number of clusters, a
 cluster may become empty during iterative calculation of
@@ -199,10 +220,10 @@ never a good idea to mix version numbers like 1.1, which
 look like regular floating-point numbers to Perl, and
 multi-part version numbers like 1.1.1 (which Perl interprets
 as 1.001001).</p>
-<p>Version 1.1.1 allows for range limiting the values of K to
-search through.  K stands for the number of clusters to
-form.  This version also declares the module dependencies in
-the Makefile.PL file.</p>
+<p>Version 1.1.1 allows for range limiting the values of <code>K</code>
+to search through.  <code>K</code> stands for the number of clusters
+to form.  This version also declares the module dependencies
+in the <code>Makefile.PL</code> file.</p>
 <p>Version 1.1 is a an object-oriented version of the
 implementation presented in version 1.0.  The current
 version should lend itself more easily to code extension.
@@ -237,7 +258,7 @@ results you obtain with a K-Means clusterer may be improved
 --- but only under certain circumstances --- by first
 normalizing the data appropriately, as can done with the
 implementation shown here when you set the
-<em>do_variance_normalization</em> option in the KMeans
+<code>do_variance_normalization</code> option in the KMeans
 constructor.  But, as pointed out elsewhere in this
 documentation, such normalization may actually decrease the
 performance of the clusterer if the overall data variability
@@ -263,14 +284,19 @@ modified clusters.</p>
 to initialize the both the cluster center values and the
 clusters that can then be iteratively modified by the
 two-step algorithm.  How this initialization is carried out
-is very important.  The implementation here uses a random
-number generator to find K random integers between 0 and N
-where N is the total number of data samples that need to be
-clustered and K the number of clusters you wish to form.
-The K random integers are used as indices for the data
-samples in the overall data array --- the data samples thus
-selected are treated as seed cluster centers.  This
-obviously requires a prior knowledge of K.</p>
+is very important.  Starting with Version 1.40, you now have
+two very different ways for carrying out this
+initialization.  The default option, called the <code>smart</code>
+option, consists of subjecting the data to principal
+components analysis to discover the direction of maximum
+variance in the data space.  The data points are then
+projected on to this direction and a histogram constructed
+from the projections.  Centers of the smoothed histogram are
+used to seed the clustering operation.  The other option,
+which is the older option, is to choose the cluster centers
+purely randomly.  You get the first option if you set
+<code>cluster_seeding</code> to <code>smart</code> in the constructor, and you get
+the second option if you set it to <code>random</code>.</p>
 <p>How to specify K is one of the most vexing issues in any
 approach to clustering.  In some case, we can set K on the
 basis of prior knowledge.  But, more often than not, no such
@@ -299,9 +325,11 @@ assignment step.</p>
 <p>Ordinarily, the output produced by a K-Means clusterer will
 correspond to a local minimum for the QoC values, as opposed
 to a global minimum.  The current implementation protects
-against that, but only in a very small way, by trying
-different randomly selected initial cluster centers and then
-selecting the one that gives the best overall QoC value.</p>
+against that when the clusterer constructor is called with
+the <code>random</code> option for <code>cluster_seeding</code>, but only in a
+very small way, by trying different randomly selected
+initial cluster centers and then selecting the one that
+gives the best overall QoC value.</p>
 <p>
 </p>
 <hr />
@@ -314,17 +342,25 @@ the generation of data for testing a clustering algorithm:</p>
 
 <dd>
 <pre>
-    my $clusterer = Algorithm::KMeans-&gt;new(datafile =&gt; $datafile,
-                                           mask     =&gt; $mask,
-                                           K        =&gt; $K,
+    my $clusterer = Algorithm::KMeans-&gt;new(datafile        =&gt; $datafile,
+                                           mask            =&gt; $mask,
+                                           K               =&gt; $K,
+                                           cluster_seeding =&gt; 'smart',
                                            terminal_output =&gt; 1,     
                                            write_clusters_to_files =&gt; 1,
+                                           debug           =&gt; 0,
                                           );</pre>
 <p>A call to <a href="#new"><code>new()</code></a> constructs a new instance of the
-Algorithm::KMeans class.  When $K is a non-zero positive
-integer, the module will construct exactly that many
-clusters.  However, when $K is 0, the module will find the
-best number of clusters to partition the data into.</p>
+<code>Algorithm::KMeans</code> class.  When <code>$K</code> is a non-zero
+positive integer, the module will construct exactly that
+many clusters.  However, when <code>$K</code> is 0, the module will
+find the best number of clusters to partition the data into.
+As explained in the Description, setting <code>cluster_seeding</code> to
+<code>smart</code> causes PCA (principal components analysis) to be
+used for discovering the best choices for the initial
+cluster centers.  If you want purely random decisions to be
+made for the initial choices for the cluster centers, set
+<code>cluster_seeding</code> to <code>random</code>.</p>
 <p>The data file is expected to contain entries in the
 following format</p>
 <pre>
@@ -339,12 +375,12 @@ information.  As to which columns are actually used for
 clustering is decided by the string value of the mask.  For
 example, if we wanted to cluster on the basis of the entries
 in just the 3rd, the 4th, and the 5th columns above, the
-mask value would be `N0111' where the character `N'
+mask value would be <code>N0111</code> where the character <code>N</code>
 indicates that the ID tag is in the first column, the
-character '0' that the second column is to be ignored, and
-the '1's that follow that the 3rd, the 4th, and the 5th
+character <code>0</code> that the second column is to be ignored, and
+the <code>1</code>'s that follow that the 3rd, the 4th, and the 5th
 columns are to be used for clustering.</p>
-<p>The parameter <em>terminal_output</em> is boolean; when not
+<p>The parameter <code>terminal_output</code> is boolean; when not
 supplied in the call to <a href="#new"><code>new()</code></a> it defaults to 0.  When set,
 this parameter determines what you will see on the terminal
 screen of the window in which you make these method calls.
@@ -352,7 +388,7 @@ When set to 1, you will see on the terminal screen the
 different clusters as lists of the symbolic IDs and their
 cluster centers. You will also see the QoC (Quality of
 Clustering) value for the clusters displayed.</p>
-<p>The parameter <em>write_clusters_to_files</em> is boolean; when
+<p>The parameter <code>write_clusters_to_files</code> is boolean; when
 not supplied in the call to <a href="#new"><code>new()</code></a>, it defaults to 0.  When
 set to 1, the clusters are written out to files named</p>
 <pre>
@@ -365,18 +401,22 @@ set to 1, the clusters are written out to files named</p>
 destroys all files with such names in the directory in which
 you call the module.</p>
 <p>If you wish for the clusterer to search through a
-<em>(Kmin,Kmax)</em> range of values for K, the constructor should
-be called in the following fashion:</p>
+<code>(Kmin,Kmax)</code> range of values for <code>K</code>, the constructor
+should be called in the following fashion:</p>
 <pre>
     my $clusterer = Algorithm::KMeans-&gt;new(datafile =&gt; $datafile,
                                            mask     =&gt; $mask,
                                            Kmin     =&gt; 3,
                                            Kmax     =&gt; 10,
+                                           cluster_seeding =&gt; 'smart',
                                            terminal_output =&gt; 1,     
+                                           debug    =&gt; 0,
                                           );</pre>
 <p>where obviously you can choose any reasonable values for
-Kmin and Kmax.  If you choose a value for Kmax that is
-statistically too large, the module will let you know.</p>
+<code>Kmin</code> and <code>Kmax</code>.  If you choose a value for <code>Kmax</code> that
+is statistically too large, the module will let you
+know. Again, you may choose <code>random</code> for
+<code>cluster_seeding</code>, the default value being <code>smart</code>.</p>
 <p>If you believe that the individual clusters in your data are
 very anisotropic (that is, you believe that intra-cluster
 variability in your data is different along the different
@@ -392,7 +432,7 @@ you if the data variability along a dimension is more a
 result of the separation between the means than a
 consequence of the intra-cluster variability.)  You can turn
 on the data normalization by turning on the
-<em>do_variance_normalization</em> option in the constructor, as
+<code>do_variance_normalization</code> option in the constructor, as
 in</p>
 <pre>
     my $clusterer = Algorithm::KMeans-&gt;new( datafile =&gt; $datafile,
@@ -426,23 +466,23 @@ centers.</p>
 <dd>
 <pre>
     $clusterer-&gt;get_K_best();</pre>
-<p>This call makes sense only if you supply either the K=0
+<p>This call makes sense only if you supply either the <code>K=0</code>
 option to the constructor, or you specify values for the
-Kmin and Kmax options. The K=0 and the (Kmin,Kmax) options
-cause the KMeans algorithm to figure out on its own the best
-value for K.  Remember, K is the number of clusters the data
-is partitioned into.</p>
+<code>Kmin</code> and <code>Kmax</code> options. The <code>K=0</code> and the
+<code>(Kmin,Kmax)</code> options cause the KMeans algorithm to figure
+out on its own the best value for <code>K</code>.  Remember, <code>K</code> is the
+number of clusters the data is partitioned into.</p>
 </dd>
 <dt><strong><a name="show_qoc_values" class="item"><strong>show_QoC_values()</strong></a></strong></dt>
 
 <dd>
 <pre>
     $clusterer-&gt;show_QoC_values();</pre>
-<p>presents a table with K values in the left column and the
+<p>presents a table with <code>K</code> values in the left column and the
 corresponding QoC (Quality-of-Clustering) values in the
 right column.  Note that this call makes sense only if you
-either supply the K=0 option to the constructor, or you
-specify values for the <em>Kmin</em> and <em>Kmax</em> options.</p>
+either supply the <code>K=0</code> option to the constructor, or you
+specify values for the <code>Kmin</code> and <code>Kmax</code> options.</p>
 </dd>
 <dt><strong><a name="visualize_clusters" class="item"><strong>visualize_clusters()</strong></a></strong></dt>
 
@@ -462,14 +502,14 @@ two- or three-dimensional subspaces of the original space.</p>
 <pre>
     $clusterer-&gt;visualize_data($visualization_mask, 'normed');</pre>
 <p>This method requires a second argument and, as shown, it
-must be either the string 'original' or the string 'normed',
-the former for the visualization of the raw data and the
-latter for the visualization of the data after its different
-dimensions are normalized by the standard-deviations along
-those directions.  If you call the method with the second
-argument set to 'normed', but do so without turning on the
-<em>do_variance_normalization</em> option in the KMeans
-constructor, it will let you know.</p>
+must be either the string <code>original</code> or the string
+<code>normed</code>, the former for the visualization of the raw
+data and the latter for the visualization of the data after
+its different dimensions are normalized by the
+standard-deviations along those directions.  If you call the
+method with the second argument set to <code>normed</code>, but do
+so without turning on the <code>do_variance_normalization</code>
+option in the KMeans constructor, it will let you know.</p>
 </dd>
 <dt><strong><a name="cluster_data_generator" class="item"><strong>cluster_data_generator()</strong></a></strong></dt>
 
@@ -483,29 +523,29 @@ constructor, it will let you know.</p>
 to play with synthetic data for clustering.  The input
 parameter file contains the means and the variances for the
 different Gaussians you wish to use for the synthetic data.
-See the file param.txt provided in the examples directory.
-It will be easiest for you to just edit this file for your
-data generation needs.  In addition to the format of the
-parameter file, the main constraint you need to observe in
-specifying the parameters is that the dimensionality of the
-covariance matrix must correspond to the dimensionality of
-the mean vectors.  The multivariate random numbers are
-generated by calling the Math::Random module.  As you would
-expect, this module requires that the covariance matrices
-you specify in your parameter file be symmetric and positive
-definite.  Should the covariances in your parameter file not
-obey this condition, the Math::Random module will let you
-know.</p>
+See the file <code>param.txt</code> provided in the examples
+directory.  It will be easiest for you to just edit this
+file for your data generation needs.  In addition to the
+format of the parameter file, the main constraint you need
+to observe in specifying the parameters is that the
+dimensionality of the covariance matrix must correspond to
+the dimensionality of the mean vectors.  The multivariate
+random numbers are generated by calling the <code>Math::Random</code>
+module.  As you would expect, this module requires that the
+covariance matrices you specify in your parameter file be
+symmetric and positive definite.  Should the covariances in
+your parameter file not obey this condition, the
+<code>Math::Random</code> module will let you know.</p>
 </dd>
 </dl>
 <p>
 </p>
 <hr />
 <h1><a name="how_are_the_clusters_output">HOW ARE THE CLUSTERS OUTPUT?</a></h1>
-<p>When the option <em>terminal_output</em> is set in the call to the
+<p>When the option <code>terminal_output</code> is set in the call to the
 constructor, the clusters are displayed on the terminal
 screen.</p>
-<p>When the option <em>write_clusters_to_files</em> is set in the
+<p>When the option <code>write_clusters_to_files</code> is set in the
 call to the constructor, the module dumps the clusters in
 files named</p>
 <pre>
@@ -524,12 +564,17 @@ that cluster.</p>
 </p>
 <hr />
 <h1><a name="required">REQUIRED</a></h1>
-<p>This module requires the following two modules:</p>
+<p>This module requires the following three modules:</p>
 <pre>
    Math::Random
-   Graphics::GnuplotIF</pre>
-<p>the former for generating the multivariate random numbers
-and the latter for the visualization of the clusters.</p>
+   Graphics::GnuplotIF
+   Math::GSL</pre>
+<p>the first for generating the multivariate random numbers,
+the second for the visualization of the clusters, and the
+last for access to the Perl wrappers for the GNU Scientific
+Library.  The <code>Matrix</code> module of this library is used for
+the PCA of the data when clustering is done with the
+<code>smart</code> mode for cluster seeding.</p>
 <p>
 </p>
 <hr />
@@ -616,6 +661,21 @@ subject line.</p>
 </p>
 <hr />
 <h1><a name="thanks">THANKS</a></h1>
+<p>It was an email from Nadeem Bulsara that prompted me to
+create Version 1.40 of this module.  Working with Version
+1.30, Nadeem noticed that occasionally the module would
+produce variable clustering results on the same dataset.  I
+believe that this variability was caused (at least partly)
+by the purely random mode that was used in Version 1.30 for
+the seeding of the cluster centers.  Version 1.40 now
+includes a <code>smart</code> mode. With the new mode the clusterer
+uses a PCA (Principal Components Analysis) of the data to
+make good guesses for the cluster centers.  However,
+depending on how the data is jumbled up, it is possible that
+the new mode will not produce uniformly good results in all
+cases.  So you can still use the old mode by setting
+<code>cluster_seeding</code> to <code>random</code> in the constructor.
+Thanks Nadeem for your feedback!</p>
 <p>Version 1.30 resulted from Martin Kalin reporting problems
 with a very small data set. Thanks Martin!</p>
 <p>Version 1.21 came about in response to the problems
@@ -645,7 +705,7 @@ subject line to get past my spam filter.</p>
 <p>This library is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.</p>
 <pre>
- Copyright 2011 Avinash Kak</pre>
+ Copyright 2012 Avinash Kak</pre>
 
 </body>
 
