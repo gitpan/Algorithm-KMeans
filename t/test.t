@@ -21,10 +21,12 @@ my $mask = "N111";
 my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
                                         mask     => "N111",
                                         K        => 3,
+                                        cluster_seeding => 'smart',
     );
 $clusterer->read_data_from_file();
-my ($clusters, $cluster_centers) = $clusterer->kmeans();
-ok( @$clusters == 3,  'Clustering works' );
+my ($clusters_hash, $cluster_centers_hash) = $clusterer->kmeans();
+my @cluster_names = keys %$clusters_hash;
+ok( @cluster_names == 3,  'Clustering works' );
 
 # Test 3 (Data Visualization)
 

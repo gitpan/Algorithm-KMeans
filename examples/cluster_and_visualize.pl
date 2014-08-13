@@ -2,76 +2,111 @@
 
 #use lib '../blib/lib', '../blib/arch';
 
+
+##  cluster_and_visualize.pl
+
+##  This is the most basic script in the `examples' directory of the Algorithm::KMeans
+##  module.  This script shows how the module is supposed to be called for clustering 
+##  your data file.  You must experiment with all of the different options at the
+##  six locations mentioned below in order to become more familiar with the capabilities
+##  of the module.
+
+##  Needs customization at SIX locations:
+##
+##      1) First choose which data file you want to use for clustering
+##
+##      2) Next, choose the data mask to apply to the columns of the data file.  The
+##           position of the letter `N' in the mast indicates the column that
+##           contains a symbolic name for each data record.
+##
+##      3) Next, you need to decide how many clusters you want the program to return.
+##           If you want the program to figure out on its own how many clusters to 
+##           partition the data into, see the script find_best_K_and_cluster.pl in this
+##           directory.
+##
+##      4) Next you need to decide whether you want to `random' seeding or `smart'
+##           seeding.  Bear in mind that `smart' seeding may produce worse results
+##           than `random' seeding, depending on how the data clusters are actually
+##           distributed.  
+##
+##      5) Next you need to decide whether or not you want to use the Mahalanobis
+##           distance metric for clustering.  The default is the Euclidean metric.
+##
+##      6) Finally, you need to choose a mask for visualization.  Here is a reason
+##           for why the visualization mask is set independently of the data mask
+##           that was specified in Step 2: Let's say your datafile has 8 columns and
+##           you are choosing to cluster the data records using 4 of those.
+##           Subsequently, you may want to visually examine the quality of clustering
+##           by examining some or 2D or 3D subspace of of the 4-dimensional space
+##           used for clustering
+
+
 use strict;
 use Algorithm::KMeans;
 
-#my $datafile = "mydatafile2.dat";
-my $datafile = "mydatafile3.dat";
-#my $datafile = "mydatafile1.dat";
-#my $datafile = "Nadeem.txt";
-#my $datafile = "features_temp.dat";
-#my $datafile = "fernando.dat";
+
+my $datafile = "mydatafile2.dat";          # contains 2 well separated clusters, 3D data
+#my $datafile = "mydatafile1.dat";         # contains 3 clusters, 3D data
+#my $datafile = "mydatafile3.dat";         # contains 2 clusters, 2D data
+
 
 # Mask:
 
-# The mask tells the module which columns of the data file
-# are are to be used for clustering, which columns are to be
-# ignored and which column contains the symbolic ID tag for
-# a data point.  If the ID is in column 1 and you are
-# clustering 3D data, the mast would be "N111".  Note the
-# first character in the mask in this case is `N' for
-# "Name".  If, on the other hand, you wanted to ignore the
-# first data coordinate for clustering, the mask would be
-# "N011".  The symbolic ID can be in any column --- you just
-# have to place the character `N' at the right place:
+# The mask tells the module which columns of the data file are are to be used for
+# clustering, which columns are to be ignored, and which column contains a symbolic
+# ID tag for a data point.  If the ID tag is in the first column and you are
+# clustering 3D data in a file that has just four columns, the mask would be "N111".
+# Note the first character in the mask in this case is `N' for "Name".  If, on the
+# other hand, you wanted to ignore the first data coordinate (which is in the second
+# column of the data file) for clustering, the mask would be "N011".  The symbolic ID
+# can be in any column --- you just have to place the character `N' at the right
+# place:
 
-my $mask = "N11";       # for mydatafile3.dat
-#my $mask = "N111";     # for mydatafile1.dat --- use all three data cols
-#my $mask = "N011";     # for mydatafile1.dat --- use all only last two cols
-#my $mask = "N100";      # for mydatafile1.dat, Nadeem.txt
-#my $mask = "N10";       # for fernando.dat and features_temp.dat datafiles
+
+my $mask = "N111";         # for mydatafile1.dat and mydatafile2.dat 
+#my $mask = "N011";        # for mydatafile1.dat --- use all only last two cols
+#my $mask = "N100";        # for mydatafile1.dat --- use only the first coordinate
+#my $mask = "N11";         # for mydatafile3.dat
+
+
 my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
                                         mask     => $mask,
                                         K        => 2,
-                                        cluster_seeding => 'smart',
+                                        cluster_seeding => 'random',   # also try 'smart'
+                                        use_mahalanobis_metric => 1,   # also try '0'
                                         terminal_output => 1,
-#                                        write_clusters_to_files => 1,
-                                        debug => 0,
-    );
+                                        write_clusters_to_files => 1,
+                );
 
 $clusterer->read_data_from_file();
+my ($clusters_hash, $cluster_centers_hash) = $clusterer->kmeans();
 
-# If you want to access the clusters in your own script:
-my ($clusters, $cluster_centers) = $clusterer->kmeans();
 
-# Once you have the clusters in your own top-level script,
-# you can now examine the contents of the clusters by the
-# following sort of code:
-foreach my $cluster (@$clusters) {
-    print "Cluster:   @$cluster\n\n"
+# ACCESSING THE CLUSTERS AND CLUSTER CENTERS IN YOUR SCRIPT:
+
+print "\nDisplaying clusters in the terminal window:\n";
+foreach my $cluster_id (sort keys %{$clusters_hash}) {
+    print "\n$cluster_id   =>   @{$clusters_hash->{$cluster_id}}\n";
 }
 
-
-#$clusterer->get_initial_cluster_centers_1_40(3);
+print "\nDisplaying cluster centers in the terminal window:\n";
+foreach my $cluster_id (sort keys %{$cluster_centers_hash}) {
+    print "\n$cluster_id   =>   @{$cluster_centers_hash->{$cluster_id}}\n";
+}
 
 
 # VISUALIZATION:
 
 # Visualization mask:
 
-# In most cases, you would not change the value of the mask
-# between clustering and visualization.  But, if you are
-# clustering multi-dimensional data and you wish to
-# visualize the projection of of the data on each plane
-# separately, you can do so by changing the value of the
-# visualization mask.  The number of on bits in the
-# visualization must not exceed the number of on bits in the
-# original data mask.
+# In most cases, you would not change the value of the mask between clustering and
+# visualization.  But, if you are clustering multi-dimensional data and you wish to
+# visualize the projection of of the data on each plane separately, you can do so by
+# changing the value of the visualization mask.  The number of on bits in the
+# visualization must not exceed the number of on bits in the original data mask.
 
-#my $visualization_mask = "111";   # for mydatafile1.dat with all 3 data cols
-my $visualization_mask = "11";   
-#my $visualization_mask = "1";  #for fernando.dat, features_temp.dat, Nadeem.txt
+my $visualization_mask = "111";    # for mydatafile1.dat and mydatafile2.dat
+#my $visualization_mask = "11";     # for mydatafile3.dat
 
 $clusterer->visualize_clusters($visualization_mask);
-
 

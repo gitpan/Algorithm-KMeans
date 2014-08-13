@@ -1,24 +1,24 @@
---- #YAML:1.0
-name:               Algorithm-KMeans
-version:            1.40
-abstract:           A pure-Perl implementation of K-Means Clustering
+---
+abstract: 'A Perl Module for K-Means Clustering'
 author:
-    - Avinash Kak (kak@purdue.edu)
-license:            unknown
-distribution_type:  module
-configure_requires:
-    ExtUtils::MakeMaker:  0
+  - 'Avinash Kak (kak@purdue.edu)'
 build_requires:
-    ExtUtils::MakeMaker:  0
-requires:
-    Graphics::GnuplotIF:  1.4
-    Math::GSL:            0.26
-    Math::Random:         0.71
-no_index:
-    directory:
-        - t
-        - inc
-generated_by:       ExtUtils::MakeMaker version 6.55_02
+  ExtUtils::MakeMaker: 0
+configure_requires:
+  ExtUtils::MakeMaker: 0
+dynamic_config: 1
+generated_by: 'ExtUtils::MakeMaker version 6.66, CPAN::Meta::Converter version 2.120921'
+license: unknown
 meta-spec:
-    url:      http://module-build.sourceforge.net/META-spec-v1.4.html
-    version:  1.4
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: Algorithm-KMeans
+no_index:
+  directory:
+    - t
+    - inc
+requires:
+  Graphics::GnuplotIF: 1.6
+  Math::GSL: 0.32
+  Math::Random: 0.71
+version: 2.0

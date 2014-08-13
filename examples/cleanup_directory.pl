@@ -10,7 +10,7 @@
 #  automatically delete those files.
 
 
-unlink glob "Cluster*.dat";
+unlink glob "cluster*.dat";
 
 unlink glob "__temp_*";
 
