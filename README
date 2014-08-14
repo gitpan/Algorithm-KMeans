@@ -1,36 +1,12 @@
+                     README
+
+
 Algorithm::KMeans is a perl5 module for the clustering of
-numerical data in multidimensional spaces.  Since the module
-is entirely in Perl (in the sense that it is not a Perl
-wrapper around a C library that actually does the
-clustering), the code in the module can easily be modified
-to experiment with several aspects of automatic clustering.
-For example, one can change the criterion used to measure
-the "distance" between two data points, the stopping
-condition for accepting final clusters, the criterion used
-for measuring the quality of the clustering achieved, etc.
-
-Please note that this clustering module is not meant for
-very large datafiles.  Being an all-Perl implementation, the
-goal here is not the speed of execution.  On the contrary,
-the goal is to make it easy to experiment with the different
-facets of K-Means clustering.  If you need to process a
-large data file, you'd be better off with a module like
-Algorithm::Cluster.  But note that when you use a wrapper
-module in which it is a C library that is actually doing the
-job of clustering for you, it is more difficult to
-experiment with various aspects of clustering.
-
-This module requires the following three modules:
+numerical data in multidimensional spaces.  
 
    Math::Random
    Graphics::GnuplotIF
    Math::GSL
-
-the first for generating the multivariate random numbers,
-the second for the visualization of the clusters, and the
-third for access to the Perl wrappers for the GNU Scientific
-Library.  The last, Math::GSL, is needed for the 'smart'
-option for "cluster_seeding" in the constructor.
 
 For installation, do the usual
 

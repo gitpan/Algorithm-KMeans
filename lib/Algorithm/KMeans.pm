@@ -18,9 +18,9 @@ use Graphics::GnuplotIF;
 use Math::GSL::Matrix;
 
 
-our $VERSION = '2.0';
+our $VERSION = '2.01';
 
-# from perl docs:
+# from Perl docs:
 my $_num_regex =  '^[+-]?\ *(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$'; 
 
 # Constructor:
@@ -1548,8 +1548,8 @@ sub display_cluster_centers {
         my @cluster_center = 
             @{$self->add_point_coords_from_original_data( $cluster )};
         @cluster_center = map {my $x = $_/$cluster_size; $x} @cluster_center;
-        print "\nCluster $i ($cluster_size records):\n";
-        print "Cluster center $i: " .
+        print "\ncluster $i ($cluster_size records):\n";
+        print "cluster center $i: " .
                "@{[map {my $x = sprintf('%.4f', $_); $x} @cluster_center]}\n";
         $i++;
     }
@@ -1816,7 +1816,8 @@ Algorithm::KMeans - for clustering multidimensional data
   # Next, set the mask to indicate which columns of the datafile to use for
   # clustering and which column contains a symbolic ID for each data record. For
   # example, if the symbolic name is in the first column, you want the second column
-  # to be ignored, and you want the next three columns to be used for 3D clustering:
+  # to be ignored, and you want the next three columns to be used for 3D clustering,
+  # you'd set the mask to:
 
   my $mask = "N0111";
 
@@ -1844,28 +1845,23 @@ Algorithm::KMeans - for clustering multidimensional data
                                           write_clusters_to_files => 1,
                                         );
 
-  # For both cases, you can use smart seeding of the clusters by changing 'random' to
-  # 'smart' for the cluster_seeding option. The choice 'smart' means that the
-  # clusterer will (1) subject the data to principal components analysis to determine
-  # the maximum variance direction; (2) project the data onto this direction; (3)
-  # find peaks in a smoothed histogram of the projected points; and (4) use the
-  # locations of the highest peaks as seeds for cluster centers.  The other value for
-  # the "cluster_seeding" option is 'random'.  If the 'smart' option produces bizarre
-  # results, try 'random'.  As mentioned, depending on your data file, you may
-  # actually get better results with random seeding.
+  # See the note in the "Methods" section for why Mahalanobis distance based
+  # clustering may fail under certain conditions.
 
-  # If you believe that the individual clusters in your data are not isotropic (that
-  # is, you believe the variances within each cluster are significantly different
-  # along the different dimensions), you may wish for the clusterer to first
-  # normalize the data along each dimension with an estimate for the
-  # standard-deviations along that dimension and then carry out clustering.  What
-  # estimate to use for such standard deviations obviously becomes an issue unto
-  # itself.  In the current implementation, we use overall data standard-deviation
-  # along each dimension as the estimate.  BUT BEWARE THAT IF THE DATA VARIANCE IS
-  # CAUSED MORE BY THE SEPARATION BETWEEN THE MEANS THAN BY THE INTRA-CLUSTER
-  # VARIABILITY, THE DATA NORMALIZATION BY THE STANDARD DEVIATIONS COULD ACTUALLY
-  # DECREASE THE PERFORMANCE OF THE CLUSTERER.  Here is an example call to the
-  # constructor for turning on the data normalization:
+  # For both constructor calls shown above, you can use smart seeding of the clusters
+  # by changing 'random' to 'smart' for the cluster_seeding option. The choice
+  # 'smart' means that the clusterer will (1) subject the data to principal
+  # components analysis to determine the maximum variance direction; (2) project the
+  # data onto this direction; (3) find peaks in a smoothed histogram of the projected
+  # points; and (4) use the locations of the highest peaks as seeds for cluster
+  # centers.  The other value for the "cluster_seeding" option is 'random'.  If the
+  # 'smart' option produces bizarre results, try 'random'.  As mentioned, depending
+  # on your data file, you may actually get better results with random seeding.
+
+  # If your data is such that its variability along the different dimensions of the
+  # data space is significantly different, you may get better clustering if you first
+  # normalize your data by setting the constructor parameter
+  # do_variance_normalization as shown below:
 
   my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
                                           mask     => $mask,
@@ -1875,6 +1871,10 @@ Algorithm::KMeans - for clustering multidimensional data
                                           do_variance_normalization => 1,
                                           write_clusters_to_files => 1,
                                         );
+
+  # But bear in mind that such data normalization may actually decrease the
+  # performance of the clusterer if the variability in the data is more a result of
+  # the separation between the means than a consequence of intra-cluster variance.
 
   # Set K to 0 if you want the module to figure out the optimum number of clusters
   # from the data. (It is best to run this option with the terminal_output set to 1
@@ -1954,12 +1954,16 @@ Algorithm::KMeans - for clustering multidimensional data
 
 =head1 CHANGES
 
+Version 2.01 removes many errors in the documentation. The changes made to the module
+in Version 2.0 were not reflected properly in the documentation page for that
+version.  The implementation code remains unchanged.
+
 Version 2.0 includes significant additional functionality: (1) You now have the
 option to cluster using the Mahalanobis distance metric (the default is the Euclidean
 metric); and (2) With the two C<which_cluster> methods that have been added to the
-module, you can determine the best cluster for a new data record after you have
+module, you can now determine the best cluster for a new data sample after you have
 created the clusters with the previously available data.  Finding the best cluster
-for a new data element can be done using either the Euclidean metric or the
+for a new data sample can be done using either the Euclidean metric or the
 Mahalanobis metric.
 
 Version 1.40 includes a C<smart> option for seeding the clusters.  This option,
@@ -1984,18 +1988,7 @@ cluster centers.  The code changes are in the C<assign_data_to_clusters()> and
 C<update_cluster_centers()> subroutines.
 
 Version 1.20 includes an option to normalize the data with respect to its variability
-along the different coordinates before clustering is carried out.  This can be a
-useful option for highly non-isotropic data, that is, the data in which the different
-coordinate values along the different dimensions vary differently.  (BUT BEWARE THAT
-IF THE OVERALL DATA VARIANCE ALONG A DIMENSION IS CAUSED MORE BY THE SEPARATION
-BETWEEN THE MEANS THAN BY THE INTRA-CLUSTER VARIABILITY, THE DATA NORMALIZATION OF
-THE SORT IN VERSION 1.20 COULD ACTUALLY DECREASE THE PERFORMANCE OF THE CLUSTERER.)
-With version 1.20, you can also visualize the raw data and the normed data to see the
-effects of data normalization.  Another reason for Version 1.20 is to get away from
-multi-part version numbers like 1.x.x.  As I discovered (thanks to an email from
-Steffen Mueller), it is never a good idea to mix version numbers like 1.1, which look
-like regular floating-point numbers to Perl, and multi-part version numbers like
-1.1.1 (which Perl interprets as 1.001001).
+along the different coordinates before clustering is carried out.  
 
 Version 1.1.1 allows for range limiting the values of C<K> to search through.  C<K>
 stands for the number of clusters to form.  This version also declares the module
@@ -2012,80 +2005,51 @@ access the clusters formed and the cluster centers in your calling script.
 
 =head1 SPECIAL USAGE NOTE
 
-If you were directly accessing in your own scripts the clusters produced by the
-previous versions of this module, you'd need to make changes to your code if you wish
-to use Version 2.0.  Instead of returning arrays of clusters and cluster centers,
-Version 2.0 returns hashes. This change was necessitated for the implementation of
-the two new C<which_cluster> methods in the module.  After you are done clustering
-the existing data, these methods return the best cluster for a new data record.
-Another point of incompatibility with the previous versions is that you must now
-explicitly set the C<cluster_seeding> option in the call to the constructor to either
-C<random> or C<smart>.
+If you were directly accessing in your own scripts the clusters produced by the older
+versions of this module, you'd need to make changes to your code if you wish to use
+Version 2.0 or higher.  Instead of returning arrays of clusters and cluster centers,
+Versions 2.0 and higher return hashes. This change was made necessary by the logic
+required for implementing the two new C<which_cluster> methods that were introduced
+in Version 2.0.  These methods return the best cluster for a new data sample from the
+clusters you created using the existing data.  One of the C<which_cluster> methods is
+based on the Euclidean metric for finding the cluster that is closest to the new data
+sample, and the other on the Mahalanobis metric.  Another point of incompatibility
+with the previous versions is that you must now explicitly set the C<cluster_seeding>
+parameter in the call to the constructor to either C<random> or C<smart>.  This
+parameter does not have a default associated with it starting with Version 2.0.
 
 
 =head1 DESCRIPTION
 
-B<Algorithm::KMeans> is a I<perl5> module for the clustering of numerical data in a
-multidimensional space.  Since the module is entirely in Perl (in the sense that it
-is not a Perl wrapper around a C library that actually does the clustering), the code
-in the module can easily be modified to experiment with several aspects of automatic
-clustering.  For example, one can change the criterion used to measure the "distance"
-between two data points, the stopping condition for accepting final clusters, the
-criterion used for measuring the quality of the clustering achieved, etc.
+Clustering with K-Means takes place iteratively and involves two steps: 1) assignment
+of data samples to clusters on the basis of how far the data samples are from the
+cluster centers; and 2) Recalculation of the cluster centers (and cluster covariances
+if you are using the Mahalanobis distance metric for clustering).
 
-A K-Means clusterer is a poor man's implementation of the EM algorithm.  EM stands
-for Expectation Maximization. For the case of isotropic Gaussian data, the results
-obtained with a good K-Means implementation should match those obtained with the EM
-algorithm.  (When the data is non-isotropic but the nature of anisotropy is the same
-for all the clusters, the results you obtain with a K-Means clusterer may be improved
---- but only under certain circumstances --- by first normalizing the data
-appropriately, as can done with the implementation shown here when you set the
-C<do_variance_normalization> option in the KMeans constructor.  But, as pointed out
-elsewhere in this documentation, such normalization may actually decrease the
-performance of the clusterer if the overall data variability along any dimension is
-more a result of the separation between the means than a consequence of intra-cluster
-variability.)  Clustering with K-Means takes place iteratively and involves two
-steps: 1) assignment of data samples to clusters; and 2) Recalculation of the cluster
-centers.  The assignment step can be shown to be akin to the Expectation step of the
-EM algorithm, and the calculation of the cluster centers akin to the Maximization
-step of the EM algorithm.
+Obviously, before the two-step approach can proceed, we need to initialize the the
+cluster centers.  How this initialization is carried out is important.  The module
+gives you two very different ways for carrying out this initialization.  One option,
+called the C<smart> option, consists of subjecting the data to principal components
+analysis to discover the direction of maximum variance in the data space.  The data
+points are then projected on to this direction and a histogram constructed from the
+projections.  Centers of the smoothed histogram are used to seed the clustering
+operation.  The other option is to choose the cluster centers purely randomly.  You
+get the first option if you set C<cluster_seeding> to C<smart> in the constructor,
+and you get the second option if you set it to C<random>.
 
-Of the two key steps of the K-Means algorithm, the assignment step consists of
-assigning each data point to that cluster from whose center the data point is the
-closest.  That is, during assignment, you compute the distance between the data point
-and each of the current cluster centers.  You assign the data sample on the basis of
-the minimum value of the computed distance.  The second step consists of re-computing
-the cluster centers for the newly modified clusters.
+How to specify the number of clusters, C<K>, is one of the most vexing issues in any
+approach to clustering.  In some case, we can set C<K> on the basis of prior
+knowledge.  But, more often than not, no such prior knowledge is available.  When the
+programmer does not explicitly specify a value for C<K>, the approach taken in the
+current implementation is to try all possible values between 2 and some largest
+possible value that makes statistical sense.  We then choose that value for C<K>
+which yields the best value for the QoC (Quality of Clustering) metric.  It is
+generally believed that the largest value for C<K> should not exceed C<sqrt(N/2)>
+where C<N> is the number of data samples to be clustered.
 
-Obviously, before the two-step approach can proceed, we need to initialize the both
-the cluster center values and the clusters that can then be iteratively modified by
-the two-step algorithm.  How this initialization is carried out is very important.
-Starting with Version 1.40, you now have two very different ways for carrying out
-this initialization.  The default option, called the C<smart> option, consists of
-subjecting the data to principal components analysis to discover the direction of
-maximum variance in the data space.  The data points are then projected on to this
-direction and a histogram constructed from the projections.  Centers of the smoothed
-histogram are used to seed the clustering operation.  The other option, which is the
-older option, is to choose the cluster centers purely randomly.  You get the first
-option if you set C<cluster_seeding> to C<smart> in the constructor, and you get the
-second option if you set it to C<random>.
-
-How to specify K is one of the most vexing issues in any approach to clustering.  In
-some case, we can set K on the basis of prior knowledge.  But, more often than not,
-no such prior knowledge is available.  When the programmer does not explicitly
-specify a value for K, the approach taken in the current implementation is to try all
-possible values between 2 and some largest possible value that makes statistical
-sense.  We then choose that value for K which yields the best value for the QoC
-(Quality of Clustering) metric.  It is generally believed that the largest value for
-K should not exceed sqrt(N/2) where N is the number of data point to be clustered.
-
-How to set the QoC metric is obviously a critical issue unto itself.  In the current
-implementation, the value of QoC is a ratio of the average radius of the clusters and
-the average distance between the cluster centers.  But note that this is a good
-criterion only when the data exhibits the same variance in all directions.  When the
-data variance is different directions, but still remains the same for all clusters, a
-more appropriate QoC can be formulated using other distance metrics such as the
-Mahalanobis distance.
+What to use for the QoC metric is obviously a critical issue unto itself.  In the
+current implementation, the value of QoC is the ratio of the average radius of the
+clusters and the average distance between the cluster centers.
 
 Every iterative algorithm requires a stopping criterion.  The criterion implemented
 here is that we stop iterations when there is no re-assignment of the data points
@@ -2093,16 +2057,27 @@ during the assignment step.
 
 Ordinarily, the output produced by a K-Means clusterer will correspond to a local
 minimum for the QoC values, as opposed to a global minimum.  The current
-implementation protects against that when the clusterer constructor is called with
-the C<random> option for C<cluster_seeding>, but only in a very small way, by trying
-different randomly selected initial cluster centers and then selecting the one that
-gives the best overall QoC value.
+implementation protects against that when the module constructor is called with the
+C<random> option for C<cluster_seeding> by trying different randomly selected initial
+cluster centers and then selecting the one that gives the best overall QoC value.
+
+A K-Means clusterer will generally produce good results if the overlap between the
+clusters is minimal and if each cluster exhibits variability that is uniform in all
+directions.  When the data variability is different along the different directions in
+the data space, the results you obtain with a K-Means clusterer may be improved by
+first normalizing the data appropriately, as can be done in this module when you set
+the C<do_variance_normalization> option in the constructor.  However, as pointed out
+elsewhere in this documentation, such normalization may actually decrease the
+performance of the clusterer if the overall data variability along any dimension is
+more a result of separation between the means than a consequence of intra-cluster
+variability.
+
 
 =head1 METHODS
 
 The module provides the following methods for clustering, for cluster visualization,
-for data visualization, and for the generation of data for testing a clustering
-algorithm:
+for data visualization, for the generation of data for testing a clustering
+algorithm, and for determining the cluster membership of a new data sample:
 
 =over 4
 
@@ -2159,18 +2134,14 @@ choose a value for C<Kmax> that is statistically too large, the module will let 
 know. Again, you may choose C<random> for C<cluster_seeding>, the default value being
 C<smart>.
 
-If you believe that the individual clusters in your data are very anisotropic (that
-is, you believe that intra-cluster variability in your data is different along the
-different dimensions), you might get better clustering by first normalizing the data
-coordinates by the standard-deviations along those directions.  But how to use a
-reasonable value for such a standard-deviation becomes a big issue unto itself.  (The
-implementation shown here uses the overall data standard-deviation along a direction
-for the normalization in that direction.  As mentioned elsewhere in the
-documentation, such a normalization could backfire on you if the data variability
-along a dimension is more a result of the separation between the means than a
-consequence of the intra-cluster variability.)  You can turn on the data
-normalization by turning on the C<do_variance_normalization> option in the
-constructor, as in
+If you believe that the variability of the data is very different along the different
+dimensions of the data space, you may get better clustering by first normalizing the
+data coordinates by the standard-deviations along those directions.  When you set the
+constructor option C<do_variance_normalization> as shown below, the module uses the
+overall data standard-deviation along a direction for the normalization in that
+direction.  (As mentioned elsewhere in the documentation, such a normalization could
+backfire on you if the data variability along a dimension is more a result of the
+separation between the means than a consequence of the intra-cluster variability.):
 
     my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
                                             mask     => "N111",   
@@ -2178,7 +2149,7 @@ constructor, as in
                                             cluster_seeding => 'smart',   # try 'random' also
                                             terminal_output => 1,
                                             do_variance_normalization => 1,
-    );
+                    );
 
 =back
 
@@ -2200,29 +2171,37 @@ the explanation in Synopsis for what this mask looks like.
 
 This parameter supplies the number of clusters you are looking for.  If you set this
 option to 0, that means that you want the module to search for the best value for
-C<K>.  However, that can take a long time for large data files.
+C<K>.  (Keep in mind the fact that searching for the best C<K> may take a long time
+for large data files.)
 
 =item C<Kmin>:
 
-If supply an integer value for <Kmin>, the search for the best C<K> will begin with
-this value.
+If you supply an integer value for C<Kmin>, the search for the best C<K> will begin
+with that value.
 
 =item C<Kmax>:
 
-If supply an integer value for <Kmax>, the search for the best C<K> will end at this
-value.
+If you supply an integer value for C<Kmax>, the search for the best C<K> will end at
+that value.
 
 =item C<cluster_seeding>:
 
-This parameter must be set to either C<random> or C<smart>.  See the Synopsis for
-what is meant by the C<smart> option.  Depending on your data, you may get superior
-clustering with the C<random> option.
+This parameter must be set to either C<random> or C<smart>.  Depending on your data,
+you may get superior clustering with the C<random> option.
 
 =item C<use_mahalanobis_metric>:
 
 When set to 1, this option causes Mahalanobis distances to be used for clustering.
 The default is 0 for this parameter. By default, the module uses the Euclidean
-distances for clustering.
+distances for clustering.  In general, Mahalanobis distance based clustering will
+fail if you seek too many clusters, your data dimensionality is high, and you do not
+have a sufficient number of samples in your data file.  A necessary requirement for
+the module to be able to compute Mahalanobis distances is that the cluster covariance
+matrices be non-singular. (Let's say your data dimensionality is C<D> and the module
+is considering a cluster that has only C<d> samples in it where C<d> is less than
+C<D>.  In this case, the covariance matrix will be singular since its rank will not
+exceed C<d>.  For the covariance matrix to be non-singular, it must be of full rank,
+that is, its rank must be C<D>.)
 
 =item C<do_variance_normalization>:
 
@@ -2233,10 +2212,9 @@ this option may or may not result in better clustering.
 =item C<terminal_output>:
 
 This boolean parameter, when not supplied in the call to C<new()>, defaults to 0.
-When set, this parameter determines what you will see on the terminal screen.  d
-calls.  When set to 1, you will see in your terminal window the different clusters as
-lists of the symbolic IDs and their cluster centers. You will also see the QoC
-(Quality of Clustering) value for the clusters displayed.
+When set, you will see in your terminal window the different clusters as lists of the
+symbolic IDs and their cluster centers. You will also see the QoC (Quality of
+Clustering) values for the clusters displayed.
 
 =item C<write_clusters_to_files>:
 
@@ -2267,41 +2245,38 @@ such names in the directory in which you call the module.
 
     or 
 
-    my ($clusters, $cluster_centers) = $clusterer->kmeans();
+    my ($clusters_hash, $cluster_centers_hash) = $clusterer->kmeans();
 
-The first call above works solely by side-effect.  The
-second call also returns the clusters and the cluster
-centers.
+The first call above works solely by side-effect.  The second call also returns the
+clusters and the cluster centers. See the C<cluster_and_visualize.pl> script in the
+C<examples> directory for how you can in your own code extract the clusters and the
+cluster centers from the variables C<$clusters_hash> and C<$cluster_centers_hash>.
 
 =item B<get_K_best()>
 
     $clusterer->get_K_best();
 
-This call makes sense only if you supply either the C<K=0>
-option to the constructor, or you specify values for the
-C<Kmin> and C<Kmax> options. The C<K=0> and the
-C<(Kmin,Kmax)> options cause the KMeans algorithm to figure
-out on its own the best value for C<K>.  Remember, C<K> is the
-number of clusters the data is partitioned into.
+This call makes sense only if you supply either the C<K=0> option to the constructor,
+or if you specify values for the C<Kmin> and C<Kmax> options. The C<K=0> and the
+C<(Kmin,Kmax)> options cause the module to determine the best value for C<K>.
+Remember, C<K> is the number of clusters the data is partitioned into.
 
 =item B<show_QoC_values()>
 
     $clusterer->show_QoC_values();
 
-presents a table with C<K> values in the left column and the
-corresponding QoC (Quality-of-Clustering) values in the
-right column.  Note that this call makes sense only if you
-either supply the C<K=0> option to the constructor, or you
-specify values for the C<Kmin> and C<Kmax> options.
+presents a table with C<K> values in the left column and the corresponding QoC
+(Quality-of-Clustering) values in the right column.  Note that this call makes sense
+only if you either supply the C<K=0> option to the constructor, or if you specify
+values for the C<Kmin> and C<Kmax> options.
 
 =item B<visualize_clusters()>
 
     $clusterer->visualize_clusters( $visualization_mask )
 
-The visualization mask here does not have to be identical to
-the one used for clustering, but must be a subset of that
-mask.  This is convenient for visualizing the clusters in
-two- or three-dimensional subspaces of the original space.
+The visualization mask here does not have to be identical to the one used for
+clustering, but must be a subset of that mask.  This is convenient for visualizing
+the clusters in two- or three-dimensional subspaces of the original space.
 
 =item B<visualize_data()>
 
@@ -2319,8 +2294,8 @@ C<do_variance_normalization> option in the KMeans constructor, it will let you k
 
 =item  B<which_cluster_for_new_data_element()>
 
-If you wish to determine the cluster membership of a new data record after you have
-created the clusters with the existing data records, you would need to call this
+If you wish to determine the cluster membership of a new data sample after you have
+created the clusters with the existing data samples, you would need to call this
 method. The C<which_cluster_for_new_data.pl> script in the C<examples> directory
 shows how to use this method.
 
@@ -2328,9 +2303,9 @@ shows how to use this method.
 =item  B<which_cluster_for_new_data_element_mahalanobis()>
 
 This does the same thing as the previous method, except that it determines the
-cluster membership using the Mahalanobis distance metric.  AS for the previous
-method, see the script C<which_cluster_for_new_data.pl> script in the C<examples>
-directory shows how to use this method.
+cluster membership using the Mahalanobis distance metric.  As for the previous
+method, see the C<which_cluster_for_new_data.pl> script in the C<examples> directory
+for how to use this method.
 
 
 =item  B<cluster_data_generator()>
@@ -2355,7 +2330,7 @@ C<Math::Random> module will let you know.
 
 =back
 
-=head1 HOW ARE THE CLUSTERS OUTPUT?
+=head1 HOW THE CLUSTERS ARE OUTPUT
 
 When the option C<terminal_output> is set in the call to the constructor, the
 clusters are displayed on the terminal screen.
@@ -2372,10 +2347,13 @@ module dumps the clusters in files named
 in the directory in which you execute the module.  The number of such files will
 equal the number of clusters formed.  All such existing files in the directory are
 destroyed before any fresh ones are created.  Each cluster file contains the symbolic
-ID tags of the data points in that cluster.
+ID tags of the data samples in that cluster.
 
-The module leaves in your directory a printable `.png' file that is a point plot of
-the different clusters. The name of this file is always C<clustering_results.png>.
+The module also leaves in your directory a printable `.png' file that is a point plot
+of the different clusters. The name of this file is always C<clustering_results.png>.
+
+Also, as mentioned previously, a call to C<kmeans()> in your own code will return the
+clusters and the cluster centers.
 
 =head1 REQUIRED
 
@@ -2391,28 +2369,29 @@ distribution. The acronym GSL stands for the GNU Scientific Library.  C<Math::GS
 a Perl interface to the GSL C-based library.
 
 
-=head1 The C<examples> Directory:
+=head1 THE C<examples> DIRECTORY
 
-The C<examples> directory contains the following scripts to help you become familiar
-with this module:
-
-For the most basic clustering (with fixed C<K>):
+The C<examples> directory contains several scripts to help you become familiar with
+this module.  The following script is an example of how the module can be expected to
+be used most of the time. It calls for clustering to be carried out with a fixed
+C<K>:
 
         cluster_and_visualize.pl
 
-The more time you spend with this script the more comfortable you will become with
-the use of this module. The script file contains a large comment block that talks
-about the SIX LOCATIONS in the script where you have to make decisions about how to
-use the module.
+The more time you spend with this script, the more comfortable you will become with
+the use of this module. The script file contains a large comment block that mentions
+six locations in the script where you have to make decisions about how to use the
+module.
 
-For clustering with an unknown value for C<K>:
+See the following script if you do not know what value to use for C<K> for clustering
+your data:
 
         find_best_K_and_cluster.pl
 
-This script is about the C<K=0> option in the constructor that causes the module to
+This script uses the C<K=0> option in the constructor that causes the module to
 search for the best C<K> for your data.  Since this search is virtually unbounded ---
-subject only the size of your data file --- it may a long time to run this script on
-a large data file.  Hence the next script.
+limited only by the number of samples in your data file --- the script may take a
+long time to run for a large data file.  Hence the next script.
 
 If your datafile is too large, you may need to range limit the values of C<K> that
 are searched through, as in the following script:
@@ -2430,19 +2409,18 @@ before and after normalization, see the following script:
         cluster_and_visualize_with_data_visualization.pl*
 
 After you are done clustering, let's say you want to find the cluster membership of a
-new data element. To see how you can do that, see the script:
+new data sample. To see how you can do that, see the script:
 
         which_cluster_for_new_data.pl
 
-As written, this script gives you two answers for which cluster the new data element
-belongs to.  One of these is using the Euclidean metric to calculate the distances
-between the new data element and the cluster centers, and the other using the
-Mahalanobis metric.  If the clusters are strongly elliptical in shape, you are likely
-to get better results with the Mahalanobis metric.  (To see that you can get two
-different answers using the two different distance metrics mentioned above, run the
-C<which_cluster_for_new_data.pl> script on the data in the file C<mydatafile3.dat>.
-To make this run, note that you have to comment out and uncomment the lines at FOUR
-different locations in the script.)
+This script returns two answers for which cluster a new data sample belongs to: one
+using the Euclidean metric to calculate the distances between the new data sample and
+the cluster centers, and the other using the Mahalanobis metric.  If the clusters are
+strongly elliptical in shape, you are likely to get better results with the
+Mahalanobis metric.  (To see that you can get two different answers using the two
+different distance metrics, run the C<which_cluster_for_new_data.pl> script on the
+data in the file C<mydatafile3.dat>.  To make this run, note that you have to comment
+out and uncomment the lines at four different locations in the script.)
 
 The C<examples> directory also contains the following support scripts:
 
@@ -2466,23 +2444,15 @@ None by design.
 
 =head1 CAVEATS
 
-Clustering usually does not work well when the data is highly anisotropic, that is,
-when the data has very different variances along its different dimensions.  This
-problem becomes particularly severe when the different clusters you expect to see in
-the data have I<non-uniform> anisotropies.  When the anisotropies are uniform, one
-can try to improve the performance of a clusterer by first normalizing the data
-coordinates along a direction by an average of the intra-cluster standard-deviations
-along that direction.  But how to obtain even a rough estimate of such standard
-deviations leads you to chicken-and-egg sort of problems.  The current implementation
-takes the low road and, when you turn on the data normalization in the KMeans
-constructor, normalizes each data coordinate value by the overall data standard
-deviation along that direction.  However, as described elsewhere, this may actually
+K-Means based clustering usually does not work well when the clusters are strongly
+overlapping and when the extent of variability along the different dimensions is
+different for the different clusters.  The module does give you the ability to
+normalize the variability in your data with the constructor option
+C<do_variance_normalization>.  However, as described elsewhere, this may actually
 reduce the performance of the clusterer if the data variability along a direction is
 more a result of the separation between the means than because of intra-cluster
-variability.  
-
-For better clustering with highly anisotropic data, you could try using the author's
-C<Algorithm::ExpectationMaximization> module.
+variability.  For better clustering with difficult-to-cluster data, you could try
+using the author's C<Algorithm::ExpectationMaximization> module.
 
 =head1 BUGS
 
@@ -2494,10 +2464,10 @@ the string 'KMeans' in the subject line.
 Download the archive from CPAN in any directory of your choice.  Unpack the archive
 with a command that on a Linux machine would look like:
 
-    tar zxvf Algorithm-KMeans-2.0.tar.gz
+    tar zxvf Algorithm-KMeans-2.01.tar.gz
 
 This will create an installation directory for you whose name will be
-C<Algorithm-KMeans-2.0>.  Enter this directory and execute the following commands:
+C<Algorithm-KMeans-2.01>.  Enter this directory and execute the following commands:
 
     perl Makefile.PL
     make
