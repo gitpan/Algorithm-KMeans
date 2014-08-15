@@ -8,7 +8,7 @@ package Algorithm::KMeans;
 # Algorithm::KMeans is a Perl module for clustering multidimensional data.
 # -----------------------------------------------------------------------------------
 
-use 5.14.0;
+use 5.10.0;
 use strict;
 use warnings;
 use Carp;
@@ -18,7 +18,7 @@ use Graphics::GnuplotIF;
 use Math::GSL::Matrix;
 
 
-our $VERSION = '2.01';
+our $VERSION = '2.02';
 
 # from Perl docs:
 my $_num_regex =  '^[+-]?\ *(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$'; 
@@ -1803,7 +1803,7 @@ Algorithm::KMeans - for clustering multidimensional data
   # Despite the qualifier 'smart' in 'smart cluster seeding', it may not always
   # produce results that are superior to those obtained with random seeding.  (If you
   # also factor in the choice regarding variance normalization, you actually have
-  # eight different choices for data clustering.)
+  # eight different choices for data clustering with this module.)
   #
   # In all cases, you'd obviously begin with
 
@@ -1845,18 +1845,9 @@ Algorithm::KMeans - for clustering multidimensional data
                                           write_clusters_to_files => 1,
                                         );
 
-  # See the note in the "Methods" section for why Mahalanobis distance based
-  # clustering may fail under certain conditions.
-
   # For both constructor calls shown above, you can use smart seeding of the clusters
-  # by changing 'random' to 'smart' for the cluster_seeding option. The choice
-  # 'smart' means that the clusterer will (1) subject the data to principal
-  # components analysis to determine the maximum variance direction; (2) project the
-  # data onto this direction; (3) find peaks in a smoothed histogram of the projected
-  # points; and (4) use the locations of the highest peaks as seeds for cluster
-  # centers.  The other value for the "cluster_seeding" option is 'random'.  If the
-  # 'smart' option produces bizarre results, try 'random'.  As mentioned, depending
-  # on your data file, you may actually get better results with random seeding.
+  # by changing 'random' to 'smart' for the cluster_seeding option.  See the
+  # explanation of smart seeding in the Methods section of this documentation.
 
   # If your data is such that its variability along the different dimensions of the
   # data space is significantly different, you may get better clustering if you first
@@ -1953,6 +1944,10 @@ Algorithm::KMeans - for clustering multidimensional data
                           number_data_points_per_cluster => $N );
 
 =head1 CHANGES
+
+Version 2.02 downshifts the version of Perl that is required for this module.  The
+module should work with versions 5.10 and higher of Perl.  The implementation code
+for the module remains unchanged.
 
 Version 2.01 removes many errors in the documentation. The changes made to the module
 in Version 2.0 were not reflected properly in the documentation page for that
@@ -2187,7 +2182,12 @@ that value.
 =item C<cluster_seeding>:
 
 This parameter must be set to either C<random> or C<smart>.  Depending on your data,
-you may get superior clustering with the C<random> option.
+you may get superior clustering with the C<random> option.  The choice C<smart> means
+that the clusterer will (1) subject the data to principal components analysis to
+determine the maximum variance direction; (2) project the data onto this direction;
+(3) find peaks in a smoothed histogram of the projected points; and (4) use the
+locations of the highest peaks as seeds for cluster centers.  If the C<smart> option
+produces bizarre results, try C<random>.
 
 =item C<use_mahalanobis_metric>:
 
@@ -2464,26 +2464,45 @@ the string 'KMeans' in the subject line.
 Download the archive from CPAN in any directory of your choice.  Unpack the archive
 with a command that on a Linux machine would look like:
 
-    tar zxvf Algorithm-KMeans-2.01.tar.gz
+    tar zxvf Algorithm-KMeans-2.02.tar.gz
 
 This will create an installation directory for you whose name will be
-C<Algorithm-KMeans-2.01>.  Enter this directory and execute the following commands:
+C<Algorithm-KMeans-2.02>.  Enter this directory and execute the following commands
+for a standard install of the module if you have root privileges:
 
     perl Makefile.PL
     make
     make test
     sudo make install
 
-if you have root access.  If not, 
+if you do not have root privileges, you can carry out a non-standard install the
+module in any directory of your choice by:
 
     perl Makefile.PL prefix=/some/other/directory/
     make
     make test
     make install
 
+With a non-standard install, you may also have to set your PERL5LIB environment
+variable so that this module can find the required other modules. How you do that
+would depend on what platform you are working on.  In order to install this module in
+a Linux machine on which I use tcsh for the shell, I set the PERL5LIB environment
+variable by
+
+    setenv PERL5LIB /some/other/directory/lib64/perl5/:/some/other/directory/share/perl5/
+
+If I used bash, I'd need to declare:
+
+    export PERL5LIB=/some/other/directory/lib64/perl5/:/some/other/directory/share/perl5/
+
+
 =head1 THANKS
 
-I added the two C<which_cluster> methods in Version 2.0 as a result of an email from
+I thank Slaven for pointing out that I needed to downshift the required version of Perl
+for this module.  Fortunately, I had access to an old machine still running Perl
+5.10.1.  The current version, 2.02, is based on my testing the module on that machine.
+
+I added two C<which_cluster> methods in Version 2.0 as a result of an email from
 Jerome White who expressed a need for such methods in order to determine the best
 cluster for a new data record after you have successfully clustered your existing
 data.  Thanks Jerome for your feedback!

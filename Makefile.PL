@@ -1,8 +1,8 @@
 use ExtUtils::MakeMaker;
 use File::Copy;
 
-if ($^V lt v5.14) {
-   die("Algorithm::KMeans has only been tested on Perl 5.14.0.\n" .
+if ($^V lt v5.10) {
+   die("Algorithm::KMeans has only been tested on Perl 5.10.1.\n" .
    "Your perl version is $].\n");
 }
 
