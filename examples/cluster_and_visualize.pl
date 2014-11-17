@@ -15,9 +15,14 @@
 ##
 ##      1) First choose which data file you want to use for clustering
 ##
+##
 ##      2) Next, choose the data mask to apply to the columns of the data file.  The
 ##           position of the letter `N' in the mast indicates the column that
-##           contains a symbolic name for each data record.
+##           contains a symbolic name for each data record.  If the symbolic name for
+##           each data record is in the first column and you want to cluster 3D data
+##           that is in the next three columns, your data mask will be N111.  On the
+##           other hand, if for the same data file, you want to carry out 2D
+##           clustering on the last two columns, your data mask will be N011.
 ##
 ##      3) Next, you need to decide how many clusters you want the program to return.
 ##           If you want the program to figure out on its own how many clusters to 
@@ -50,7 +55,8 @@ my $datafile = "mydatafile2.dat";          # contains 2 well separated clusters,
 #my $datafile = "mydatafile3.dat";         # contains 2 clusters, 2D data
 
 
-# Mask:
+# Mask: (For emphasis, this is a slightly more detailed repetition of the comment
+# made above in Item 2)
 
 # The mask tells the module which columns of the data file are are to be used for
 # clustering, which columns are to be ignored, and which column contains a symbolic

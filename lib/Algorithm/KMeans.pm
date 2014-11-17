@@ -18,7 +18,7 @@ use Graphics::GnuplotIF;
 use Math::GSL::Matrix;
 
 
-our $VERSION = '2.02';
+our $VERSION = '2.03';
 
 # from Perl docs:
 my $_num_regex =  '^[+-]?\ *(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$'; 
@@ -1443,6 +1443,7 @@ sub get_index_at_value {
     foreach my $i (0..@array-1) {
         return $i if $value == $array[$i];
     }
+    return -1;
 }
 
 # This routine is really not necessary in light of the new `~~' operator in Perl.
@@ -1583,11 +1584,9 @@ sub fisher_yates_shuffle {
 }
 
 sub variance_normalization {
-    print "Normalizing data with respect to variances\n";
     my %data_hash = %{shift @_};
     my @all_data_points = values %data_hash;
     my $dimensions = @{$all_data_points[0]};
-
     my @data_projections;
     foreach my $data_point (@all_data_points) {
         my $i = 0;
@@ -1945,6 +1944,9 @@ Algorithm::KMeans - for clustering multidimensional data
 
 =head1 CHANGES
 
+Version 2.03 incorporates minor code cleanup.  The main implementation of the module
+remains unchanged.
+
 Version 2.02 downshifts the version of Perl that is required for this module.  The
 module should work with versions 5.10 and higher of Perl.  The implementation code
 for the module remains unchanged.
@@ -2148,7 +2150,7 @@ separation between the means than a consequence of the intra-cluster variability
 
 =back
 
-=head2 Constructor Parameters:
+=head2 Constructor Parameters
 
 =over 8
 
@@ -2464,10 +2466,10 @@ the string 'KMeans' in the subject line.
 Download the archive from CPAN in any directory of your choice.  Unpack the archive
 with a command that on a Linux machine would look like:
 
-    tar zxvf Algorithm-KMeans-2.02.tar.gz
+    tar zxvf Algorithm-KMeans-2.03.tar.gz
 
 This will create an installation directory for you whose name will be
-C<Algorithm-KMeans-2.02>.  Enter this directory and execute the following commands
+C<Algorithm-KMeans-2.03>.  Enter this directory and execute the following commands
 for a standard install of the module if you have root privileges:
 
     perl Makefile.PL
@@ -2475,7 +2477,7 @@ for a standard install of the module if you have root privileges:
     make test
     sudo make install
 
-if you do not have root privileges, you can carry out a non-standard install the
+If you do not have root privileges, you can carry out a non-standard install the
 module in any directory of your choice by:
 
     perl Makefile.PL prefix=/some/other/directory/

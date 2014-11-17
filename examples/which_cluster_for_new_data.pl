@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 
-use lib '../blib/lib', '../blib/arch';
+#use lib '../blib/lib', '../blib/arch';
 
 
 ##  which_cluster_for_new_data.pl

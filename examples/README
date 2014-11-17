@@ -6,7 +6,7 @@ Examples directory:
 
         cluster_and_visualize.pl
 
-    The more time you spend with this script the more comfortable you will
+    The more time you spend with this script, the more comfortable you will
     become with the use of this module. The script file contains a large
     comment block that talks about the SIX LOCATIONS in the script where
     you have to make decisions about how to use the module.
