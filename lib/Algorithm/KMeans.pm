@@ -18,7 +18,7 @@ use Graphics::GnuplotIF;
 use Math::GSL::Matrix;
 
 
-our $VERSION = '2.03';
+our $VERSION = '2.04';
 
 # from Perl docs:
 my $_num_regex =  '^[+-]?\ *(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$'; 
@@ -60,6 +60,55 @@ sub new {
 }
 
 sub read_data_from_file {
+    my $self = shift;
+    my $filename = $self->{_datafile};
+    $self->read_data_from_file_csv() if $filename =~ /.csv$/;
+    $self->read_data_from_file_dat() if $filename =~ /.dat$/;
+}
+
+sub read_data_from_file_csv {
+    my $self = shift;
+    my $numregex =  '[+-]?\ *(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?';
+    my $filename = $self->{_datafile} || die "you did not specify a file with the data to be clustered";
+    my $mask = $self->{_mask};
+    my @mask = split //, $mask;
+    $self->{_data_dimensions} = scalar grep {$_ eq '1'} @mask;
+    print "data dimensionality:  $self->{_data_dimensions} \n"if $self->{_terminal_output};
+    open FILEIN, $filename or die "Unable to open $filename: $!";
+    die("Aborted. get_training_data_csv() is only for CSV files") unless $filename =~ /\.csv$/;
+    local $/ = undef;
+    my @all_data = split /\s+/, <FILEIN>;
+    my %data_hash = ();
+    my @data_tags = ();
+    foreach my $record (@all_data) {    
+        my @splits = split /,/, $record;
+        my $record_name = shift @splits;
+        $data_hash{$record_name} = \@splits;
+        push @data_tags, $record_name;
+    }
+    $self->{_original_data} = \%data_hash;
+    $self->{_data_id_tags} = \@data_tags;
+    $self->{_N} = scalar @data_tags;
+    if ($self->{_var_normalize}) {
+        $self->{_data} =  variance_normalization( $self->{_original_data} ); 
+    } else {
+        $self->{_data} = deep_copy_hash( $self->{_original_data} );
+    }
+    # Need to make the following call to set the global mean and covariance:
+    # my $covariance =  $self->estimate_mean_and_covariance(\@data_tags);
+    # Need to make the following call to set the global eigenvec eigenval sets:
+    # $self->eigen_analysis_of_covariance($covariance);
+    if ( defined($self->{_K}) && ($self->{_K} > 0) ) {
+        carp "\n\nWARNING: YOUR K VALUE IS TOO LARGE.\n The number of data " .
+             "points must satisfy the relation N > 2xK**2 where K is " .
+             "the number of clusters requested for the clusters to be " .
+             "meaningful $!" 
+                         if ( $self->{_N} < (2 * $self->{_K} ** 2) );
+        print "\n\n\n";
+    }
+}
+
+sub read_data_from_file_dat {
     my $self = shift;
     my $datafile = $self->{_datafile};
     my $mask = $self->{_mask};
@@ -107,7 +156,6 @@ sub read_data_from_file {
                          if ( $self->{_N} < (2 * $self->{_K} ** 2) );
         print "\n\n\n";
     }
-    srand(123456789);
 }
 
 sub kmeans {
@@ -175,6 +223,9 @@ sub cluster_for_fixed_K_multiple_random_tries {
             $cluster_centers = deep_copy_AoA( $new_cluster_centers );
         } 
     }
+    die "\n\nThe constructor options you have chosen do not work with the data.  Try\n" .
+        "turning off the Mahalanobis option if you are using it.\n"
+        unless defined $clusters;
     $self->{_clusters} = $clusters;
     $self->{_cluster_centers} = $cluster_centers;  
     $self->{_QoC_values}->{"$K"} = $QoC; 
@@ -736,6 +787,8 @@ sub assign_data_to_clusters_mahalanobis {
                     push @mahalanobis_dist_from_clust_centers, $maha_distance; 
                 }
                 my ($min, $best_center_index) = minimum( \@mahalanobis_dist_from_clust_centers );
+                die "The Mahalanobis metric may not be appropriate for the data" 
+                    unless defined $best_center_index;
                 my $best_cluster_center = $cluster_centers->[$best_center_index];
                 if (vector_equal($current_cluster_center, $best_cluster_center)){
                     push @{$new_clusters->[$current_cluster_center_index]}, $ele;
@@ -1067,7 +1120,7 @@ sub write_clusters_to_files {
     my @clusters = @{$self->{_clusters}};
     unlink glob "cluster*.dat";
     foreach my $i (0..@clusters-1) {
-        my $filename = "cluster" . $i . ".dat";
+        my $filename = "cluster" . $i . ".txt";
         print "\nWriting cluster $i to file $filename\n" if $self->{_terminal_output};
         open FILEHANDLE, "| sort > $filename"  or die "Unable to open file: $!";
         foreach my $ele (@{$clusters[$i]}) {        
@@ -1810,7 +1863,7 @@ Algorithm::KMeans - for clustering multidimensional data
 
   # You'd then name the data file:
 
-  my $datafile = "mydatafile.dat";
+  my $datafile = "mydatafile.csv";
 
   # Next, set the mask to indicate which columns of the datafile to use for
   # clustering and which column contains a symbolic ID for each data record. For
@@ -1943,6 +1996,8 @@ Algorithm::KMeans - for clustering multidimensional data
                           number_data_points_per_cluster => $N );
 
 =head1 CHANGES
+
+Version 2.04 allows you to use CSV data files for clustering.
 
 Version 2.03 incorporates minor code cleanup.  The main implementation of the module
 remains unchanged.
@@ -2196,14 +2251,14 @@ produces bizarre results, try C<random>.
 When set to 1, this option causes Mahalanobis distances to be used for clustering.
 The default is 0 for this parameter. By default, the module uses the Euclidean
 distances for clustering.  In general, Mahalanobis distance based clustering will
-fail if you seek too many clusters, your data dimensionality is high, and you do not
-have a sufficient number of samples in your data file.  A necessary requirement for
-the module to be able to compute Mahalanobis distances is that the cluster covariance
-matrices be non-singular. (Let's say your data dimensionality is C<D> and the module
-is considering a cluster that has only C<d> samples in it where C<d> is less than
-C<D>.  In this case, the covariance matrix will be singular since its rank will not
-exceed C<d>.  For the covariance matrix to be non-singular, it must be of full rank,
-that is, its rank must be C<D>.)
+fail if your data resides on a lower-dimensional hyperplane in the data space, if you
+seek too many clusters, and if you do not have a sufficient number of samples in your
+data file.  A necessary requirement for the module to be able to compute Mahalanobis
+distances is that the cluster covariance matrices be non-singular. (Let's say your
+data dimensionality is C<D> and the module is considering a cluster that has only
+C<d> samples in it where C<d> is less than C<D>.  In this case, the covariance matrix
+will be singular since its rank will not exceed C<d>.  For the covariance matrix to
+be non-singular, it must be of full rank, that is, its rank must be C<D>.)
 
 =item C<do_variance_normalization>:
 
@@ -2223,9 +2278,9 @@ Clustering) values for the clusters displayed.
 This parameter is also boolean.  When set to 1, the clusters are written out to files
 that are named in the following manner:
 
-     cluster0.dat 
-     cluster1.dat 
-     cluster2.dat
+     cluster0.txt 
+     cluster1.txt 
+     cluster2.txt
      ...
      ...
 
@@ -2340,9 +2395,9 @@ clusters are displayed on the terminal screen.
 When the option C<write_clusters_to_files> is set in the call to the constructor, the
 module dumps the clusters in files named
 
-    cluster0.dat
-    cluster1.dat
-    cluster2.dat
+    cluster0.txt
+    cluster1.txt
+    cluster2.txt
     ...
     ...
 
@@ -2466,10 +2521,10 @@ the string 'KMeans' in the subject line.
 Download the archive from CPAN in any directory of your choice.  Unpack the archive
 with a command that on a Linux machine would look like:
 
-    tar zxvf Algorithm-KMeans-2.03.tar.gz
+    tar zxvf Algorithm-KMeans-2.04.tar.gz
 
 This will create an installation directory for you whose name will be
-C<Algorithm-KMeans-2.03>.  Enter this directory and execute the following commands
+C<Algorithm-KMeans-2.04>.  Enter this directory and execute the following commands
 for a standard install of the module if you have root privileges:
 
     perl Makefile.PL

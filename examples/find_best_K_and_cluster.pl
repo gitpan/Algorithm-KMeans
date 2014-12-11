@@ -29,8 +29,8 @@
 use strict;
 use Algorithm::KMeans;
 
-#my $datafile = "mydatafile1.dat";                  # contains 3 clusters, 3D data
-my $datafile = "mydatafile2.dat";                   # contains 2 clusters, 3D data
+my $datafile = "mydatafile1.dat";                  # contains 3 clusters, 3D data
+#my $datafile = "mydatafile2.dat";                   # contains 2 clusters, 3D data
 
 # Mask:
 
@@ -50,7 +50,7 @@ my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
                                         mask     => $mask,
                                         K        => 0,
                                         cluster_seeding => 'random',   # try 'smart' also
-                                        use_mahalanobis_metric => 1,   # try '0' also
+#                                        use_mahalanobis_metric => 1,   # try '0' also
                                         write_clusters_to_files => 1,
                                         terminal_output => 1,
                 );

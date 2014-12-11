@@ -24,7 +24,9 @@
 use strict;
 use Algorithm::KMeans;
 
-my $datafile = "mydatafile1.dat";
+#my $datafile = "mydatafile1.dat";
+my $datafile = "sphericaldata.csv";
+
 my $mask = "N111";
 
 my $clusterer = Algorithm::KMeans->new( datafile => $datafile,

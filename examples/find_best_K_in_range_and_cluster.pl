@@ -22,15 +22,16 @@
 use strict;
 use Algorithm::KMeans;
 
-my $datafile = "mydatafile1.dat";                 # contains 3 clusters, 3D data
+#my $datafile = "mydatafile1.dat";                 # contains 3 clusters, 3D data
+my $datafile = "sphericaldata.csv";               # contains 3 clusters, 3D data
 
 my $mask = "N111";
 my $clusterer = Algorithm::KMeans->new( datafile         => $datafile,
                                         mask             => "N111",
                                         cluster_seeding  => "random",  # try 'smart' also
-                                        Kmin             => 3,
+                                        Kmin             => 2,
                                         Kmax             => 4,
-                                        use_mahalanobis_metric => 1,   #try '0' also
+#                                        use_mahalanobis_metric => 1,   #try '0' also
                                         terminal_output  => 1,
                                         write_clusters_to_files => 1,
                 );

@@ -50,9 +50,10 @@ use strict;
 use Algorithm::KMeans;
 
 
-my $datafile = "mydatafile2.dat";          # contains 2 well separated clusters, 3D data
-#my $datafile = "mydatafile1.dat";         # contains 3 clusters, 3D data
-#my $datafile = "mydatafile3.dat";         # contains 2 clusters, 2D data
+my $datafile = "mydatafile2.dat";          # K = 2,  mask = "N111"
+#my $datafile = "sphericaldata.csv";        # K = 3,  mask = "N111"
+#my $datafile = "mydatafile1.dat";          # K = 3,  mask = "N111"
+#my $datafile = "mydatafile3.dat";          # K = 2,  mask = "N11"
 
 
 # Mask: (For emphasis, this is a slightly more detailed repetition of the comment
@@ -69,7 +70,7 @@ my $datafile = "mydatafile2.dat";          # contains 2 well separated clusters,
 # place:
 
 
-my $mask = "N111";         # for mydatafile1.dat and mydatafile2.dat 
+my $mask = "N111";         # for mydatafile1.dat, mydatafile2.dat, and sphericaldata.csv 
 #my $mask = "N011";        # for mydatafile1.dat --- use all only last two cols
 #my $mask = "N100";        # for mydatafile1.dat --- use only the first coordinate
 #my $mask = "N11";         # for mydatafile3.dat
@@ -79,7 +80,7 @@ my $clusterer = Algorithm::KMeans->new( datafile => $datafile,
                                         mask     => $mask,
                                         K        => 2,
                                         cluster_seeding => 'random',   # also try 'smart'
-                                        use_mahalanobis_metric => 1,   # also try '0'
+#                                        use_mahalanobis_metric => 1,   # also try '0'
                                         terminal_output => 1,
                                         write_clusters_to_files => 1,
                 );

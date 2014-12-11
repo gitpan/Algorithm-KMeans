@@ -6,6 +6,7 @@ examples/data_generator.pl
 examples/which_cluster_for_new_data.pl
 examples/find_best_K_and_cluster.pl
 examples/find_best_K_in_range_and_cluster.pl
+examples/sphericaldata.csv
 examples/mydatafile1.dat
 examples/mydatafile2.dat
 examples/mydatafile3.dat
