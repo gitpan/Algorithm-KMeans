@@ -21,4 +21,4 @@ requires:
   Graphics::GnuplotIF: 1.6
   Math::GSL: 0.32
   Math::Random: 0.71
-version: 2.04
+version: 2.05

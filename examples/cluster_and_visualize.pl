@@ -50,10 +50,10 @@ use strict;
 use Algorithm::KMeans;
 
 
-my $datafile = "mydatafile2.dat";          # K = 2,  mask = "N111"
-#my $datafile = "sphericaldata.csv";        # K = 3,  mask = "N111"
-#my $datafile = "mydatafile1.dat";          # K = 3,  mask = "N111"
-#my $datafile = "mydatafile3.dat";          # K = 2,  mask = "N11"
+my $datafile = "mydatafile2.dat";           #  use:  K = 2,  mask = "N111",  vmask = "N111"
+#my $datafile = "sphericaldata.csv";        #  use:  K = 3,  mask = "N111",  vmask = "N111"
+#my $datafile = "mydatafile1.dat";          #  use:  K = 3,  mask = "N111",  vmask = "N111"
+#my $datafile = "mydatafile3.dat";          #  use:  K = 2,  mask = "N11" ,  vmask = "N11"
 
 
 # Mask: (For emphasis, this is a slightly more detailed repetition of the comment
@@ -112,8 +112,8 @@ foreach my $cluster_id (sort keys %{$cluster_centers_hash}) {
 # changing the value of the visualization mask.  The number of on bits in the
 # visualization must not exceed the number of on bits in the original data mask.
 
-my $visualization_mask = "111";    # for mydatafile1.dat and mydatafile2.dat
-#my $visualization_mask = "11";     # for mydatafile3.dat
+my $vmask = "111";                 # for mydatafile1.dat and mydatafile2.dat
+#my $vmask = "11";                 # for mydatafile3.dat
 
-$clusterer->visualize_clusters($visualization_mask);
+$clusterer->visualize_clusters( $vmask );
 

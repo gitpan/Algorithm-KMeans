@@ -8,7 +8,7 @@ package Algorithm::KMeans;
 # Algorithm::KMeans is a Perl module for clustering multidimensional data.
 # -----------------------------------------------------------------------------------
 
-use 5.10.0;
+#use 5.10.0;
 use strict;
 use warnings;
 use Carp;
@@ -18,7 +18,7 @@ use Graphics::GnuplotIF;
 use Math::GSL::Matrix;
 
 
-our $VERSION = '2.04';
+our $VERSION = '2.05';
 
 # from Perl docs:
 my $_num_regex =  '^[+-]?\ *(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$'; 
@@ -82,6 +82,9 @@ sub read_data_from_file_csv {
     my @data_tags = ();
     foreach my $record (@all_data) {    
         my @splits = split /,/, $record;
+        die "\nYour mask size (including `N' and 1's and 0's) does not match\n" .
+            "the size of at least one of the data records in the file: $!"
+            unless scalar(@mask) == scalar(@splits);
         my $record_name = shift @splits;
         $data_hash{$record_name} = \@splits;
         push @data_tags, $record_name;
@@ -1997,6 +2000,13 @@ Algorithm::KMeans - for clustering multidimensional data
 
 =head1 CHANGES
 
+Version 2.05 removes the restriction on the version of Perl that is required.  This
+is based on Srezic's recommendation.  He had no problem building and testing the
+previous version with Perl 5.8.9.  Version 2.05 also includes a small augmentation of
+the code in the method C<read_data_from_file_csv()> for guarding against user errors
+in the specification of the mask that tells the module which columns of the data file
+are to be used for clustering.
+
 Version 2.04 allows you to use CSV data files for clustering.
 
 Version 2.03 incorporates minor code cleanup.  The main implementation of the module
@@ -2521,10 +2531,10 @@ the string 'KMeans' in the subject line.
 Download the archive from CPAN in any directory of your choice.  Unpack the archive
 with a command that on a Linux machine would look like:
 
-    tar zxvf Algorithm-KMeans-2.04.tar.gz
+    tar zxvf Algorithm-KMeans-2.05.tar.gz
 
 This will create an installation directory for you whose name will be
-C<Algorithm-KMeans-2.04>.  Enter this directory and execute the following commands
+C<Algorithm-KMeans-2.05>.  Enter this directory and execute the following commands
 for a standard install of the module if you have root privileges:
 
     perl Makefile.PL

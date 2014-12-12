@@ -1,10 +1,10 @@
 use ExtUtils::MakeMaker;
 use File::Copy;
 
-if ($^V lt v5.10) {
-   die("Algorithm::KMeans has only been tested on Perl 5.10.1.\n" .
-   "Your perl version is $].\n");
-}
+#if ($^V lt v5.10) {
+#   die("Algorithm::KMeans has only been tested on Perl 5.10.1.\n" .
+#   "Your perl version is $].\n");
+#}
 
 copy("perl/MANIFEST.perl","MANIFEST");
 
